@@ -1,0 +1,16 @@
+.playwright-cli/
+node_modules/
+test-results/
+*.log
+
+# Android build artifacts and local environment (never publish or commit)
+android/.gradle/
+android/app/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+android/app/release/
+.kotlin/

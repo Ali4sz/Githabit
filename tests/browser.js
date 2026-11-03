@@ -1,0 +1,173 @@
+// Run in an isolated Playwright CLI session; this resets only that browser's demo data.
+async (page) => {
+  const checks = [];
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('githabit.prototype.v1')));
+  const clickAction = action => page.locator(`[data-action="${action}"]`).filter({ visible: true }).first().click();
+  const total = async () => page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('githabit.prototype.v1'));
+    return window.GitHabitDomain.progress(state.habits[0], state.logs, window.GitHabitDomain.dateKey()).total;
+  });
+  const checkOverflow = async label => {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    assert(!overflow, `${label} has horizontal page overflow`);
+  };
+
+  await page.goto('http://127.0.0.1:4173');
+  await page.evaluate(() => localStorage.removeItem('githabit.prototype.v1'));
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('Demo email').fill('prototype@example.com');
+  await page.getByLabel('Demo password').fill('not-a-real-password');
+  await page.locator('#auth-form button[type="submit"]').click();
+  await page.getByRole('heading', { name: 'Create your first repo.' }).waitFor();
+  const authState = JSON.stringify(await stored());
+  assert(!authState.includes('prototype@example.com') && !authState.includes('not-a-real-password'), 'Credentials must not be stored');
+  await clickAction('onboarding-next');
+  await page.getByRole('heading', { name: 'Make a small commit.' }).waitFor();
+  await clickAction('onboarding-next');
+  await page.getByRole('heading', { name: 'Watch consistency grow.' }).waitFor();
+  await clickAction('start-empty');
+  await page.getByRole('dialog').waitFor();
+  checks.push('Simulated email authentication, no stored credentials, three-step onboarding');
+
+  await page.getByLabel('Repo name').fill('Read every day');
+  await page.getByLabel('A little motivation').fill('Make time for another perspective.');
+  await page.getByLabel('Daily target').fill('20');
+  await page.getByLabel('Unit', { exact: true }).fill('pages');
+  await page.getByRole('button', { name: 'Create repo', exact: true }).click();
+  await page.getByRole('button', { name: 'Read every day', exact: true }).waitFor();
+  assert((await stored()).habits.length === 1, 'Repo should persist');
+  await page.reload();
+  await page.getByRole('button', { name: 'Read every day', exact: true }).waitFor();
+  checks.push('Create a daily numeric habit and retain it across reload');
+
+  await page.getByRole('button', { name: 'Log progress for Read every day' }).click();
+  await page.getByLabel('Amount to add').fill('0');
+  assert(!(await page.getByLabel('Amount to add').evaluate(element => element.checkValidity())), 'Zero amount should be invalid');
+  await page.getByLabel('Amount to add').fill('5');
+  await page.getByLabel('Commit message').fill('<img src=x onerror=alert(1)>');
+  await page.getByRole('button', { name: 'Commit progress', exact: true }).click();
+  assert(await total() === 5, 'Partial progress should total 5');
+  await page.getByRole('button', { name: "Complete today's goal for Read every day" }).click();
+  assert(await total() === 20, 'Quick completion should add only 15');
+  assert((await stored()).logs.at(-1).amount === 15, 'Remaining goal log should be 15');
+  assert(await page.getByRole('button', { name: "Complete today's goal for Read every day" }).count() === 0, 'Complete action should disappear after goal reached');
+  await clickAction('undo');
+  assert(await total() === 5, 'Undo should restore partial progress');
+  await page.getByRole('button', { name: "Complete today's goal for Read every day" }).click();
+  await page.getByRole('button', { name: 'Log progress for Read every day' }).click();
+  await page.getByLabel('Amount to add').fill('3');
+  await page.getByRole('button', { name: 'Commit progress', exact: true }).click();
+  assert(await total() === 23, 'Over-target progress should be retained');
+  await clickAction('undo');
+  assert(await total() === 20, 'Undo extra progress');
+  checks.push('Invalid input rejection, partial logs, remaining-only completion, extra progress, undo');
+
+  await page.getByRole('button', { name: 'Read every day', exact: true }).click();
+  await page.getByRole('heading', { name: 'Read every day', exact: true }).waitFor();
+  assert(await page.locator('.history-info img').count() === 0, 'Commit message should be escaped, not interpreted as markup');
+  await page.locator('[data-action="edit-log"]').first().click();
+  await page.getByLabel('Corrected amount').fill('10');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  assert(await total() === 15, 'Corrected history should update current totals');
+  await page.locator('[data-action="edit-log"]').first().click();
+  await clickAction('delete-log');
+  await clickAction('confirm-delete-log');
+  assert(await total() === 5, 'Deleting a commit should update totals');
+  await clickAction('undo');
+  assert(await total() === 15, 'Deleted commit can be restored');
+  checks.push('Per-repo history, safe text rendering, correcting and deleting commits');
+
+  await clickAction('edit-repo');
+  await page.getByLabel('Daily target').fill('30');
+  assert(await page.getByLabel('Unit', { exact: true }).getAttribute('readonly') !== null, 'Units should be locked when history exists');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  assert((await stored()).habits[0].changes.at(-1).target === 30, 'Target change should persist');
+  await clickAction('pause');
+  assert((await stored()).habits[0].changes.at(-1).status === 'paused', 'Repo should pause');
+  await clickAction('resume');
+  await clickAction('archive');
+  await clickAction('confirm-archive');
+  assert((await stored()).habits[0].changes.at(-1).status === 'archived', 'Repo should archive');
+  assert((await stored()).logs.length === 2, 'Archived repo should retain logs');
+  await clickAction('resume');
+  checks.push('Edit goals, fixed historical units, pause, archive, and resume without deleting history');
+
+  await page.locator('.heatmap-footer [data-action="day"]').click();
+  await page.getByRole('heading', { name: 'A day in your story' }).waitFor();
+  assert((await page.locator('.day-summary').innerText()).includes('50%'), 'Day summary should use goal percentage');
+  await page.locator('[data-action="day"]').filter({ hasText: 'Previous' }).click();
+  await page.getByText('No habits scheduled on this day.').waitFor();
+  await page.keyboard.press('Escape');
+  assert(!(await page.locator('#sheet').evaluate(element => element.open)), 'Escape should close modal');
+  checks.push('Accessible date exploration, percentage calculations, empty historical day, Escape');
+
+  await page.locator('.bottom-nav a[href="#repos"]').click();
+  await page.getByLabel('Search repositories').fill('not-found');
+  await page.getByRole('heading', { name: 'No matching repos.' }).waitFor();
+  await page.getByLabel('Search repositories').fill('Read');
+  await page.getByRole('button', { name: 'Read every day', exact: true }).waitFor();
+  await page.locator('.bottom-nav a[href="#insights"]').click();
+  await page.getByRole('heading', { name: 'The bigger picture' }).waitFor();
+  await checkOverflow('Mobile insights');
+  await clickAction('settings');
+  await page.getByLabel('Display name').fill('Jordan');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  assert((await stored()).profile.name === 'Jordan', 'Profile should update');
+  await page.locator('[data-action="set-theme"][data-value="light"]').click();
+  assert(await page.locator('html').getAttribute('data-theme') === 'light', 'Light theme should apply');
+  await page.reload();
+  assert(await page.locator('html').getAttribute('data-theme') === 'light', 'Theme should persist');
+  await clickAction('guide');
+  await page.getByRole('heading', { name: 'Small commits. Real progress.' }).waitFor();
+  await page.keyboard.press('Escape');
+  checks.push('Search, insights, profile editing, theme persistence, and help');
+
+  const downloadPromise = page.waitForEvent('download');
+  await clickAction('export');
+  const download = await downloadPromise;
+  assert(download.suggestedFilename().endsWith('.json'), 'Export should download JSON');
+  await clickAction('signout');
+  await page.getByLabel('Demo email').waitFor();
+  await clickAction('google-demo');
+  await page.getByRole('heading', { name: 'A little better, every day.' }).waitFor();
+  assert((await stored()).habits.length === 1, 'Simulated Google return should preserve data and skip onboarding');
+  await clickAction('settings');
+  await clickAction('reset');
+  await clickAction('close-sheet');
+  assert((await stored()).habits.length === 1, 'Cancel reset should preserve data');
+  await clickAction('reset');
+  await clickAction('confirm-reset');
+  await page.getByLabel('Demo email').waitFor();
+  assert((await stored()).habits.length === 0 && !(await stored()).session, 'Reset should clear all workspace data');
+  checks.push('JSON export, sign-out, simulated Google return, safe reset confirmation');
+
+  await clickAction('explore');
+  await page.getByRole('heading', { name: 'A little better, every day.' }).waitFor();
+  assert((await stored()).habits.length === 6, 'Explicit sample preview should seed six habits');
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await checkOverflow(`Today at ${width}px`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const heatmapAtEnd = await page.locator('.heatmap-scroll').evaluate(element => element.scrollWidth - element.clientWidth - element.scrollLeft < 2);
+  assert(heatmapAtEnd, 'Mobile heatmap should start at the latest dates');
+  assert(await page.locator('.heat-cell[tabindex="0"]').count() === 1, 'Graph should have a single tab stop');
+  const latestDay = await page.locator('.heat-cell[tabindex="0"]').getAttribute('data-day');
+  await page.locator('.heat-cell[tabindex="0"]').focus();
+  await page.keyboard.press('ArrowLeft');
+  assert(await page.locator('.heat-cell[tabindex="0"]').getAttribute('data-day') !== latestDay, 'Arrow keys should move the graph focus');
+  await page.keyboard.press('End');
+  assert(await page.locator('.heat-cell[tabindex="0"]').getAttribute('data-day') === latestDay, 'End should focus the latest date');
+  await page.keyboard.press('Enter');
+  await page.getByRole('heading', { name: 'A day in your story' }).waitFor();
+  await page.keyboard.press('Escape');
+  checks.push('Heatmap roving keyboard focus, date selection, and modal keyboard dismissal');
+  assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
+  checks.push('Sample data, five responsive widths, latest heatmap dates, no browser exceptions');
+  return { passed: checks.length, checks, browserErrors: errors };
+}

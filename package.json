@@ -1,0 +1,11 @@
+{
+  "name": "githabit-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An interactive, dependency-free GitHabit design prototype.",
+  "scripts": {
+    "start": "python3 -m http.server 4173 --bind 127.0.0.1",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check domain.js && node --check app.js"
+  }
+}
