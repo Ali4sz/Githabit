@@ -1,6 +1,7 @@
 package com.githabit.prototype
 
 import android.graphics.Bitmap
+import android.os.Build
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -29,7 +30,31 @@ class GitHabitFlowTest {
     // Observe only the atomically renamed base file while the app is writing.
     private fun persisted(): Workspace = WorkspaceJson.decode(context.getFileStreamPath("githabit-workspace.json").readText())
 
+    /**
+     * Destructive guard (fail-closed): these tests replace the target app's workspace, and a
+     * separate test APK does not isolate personal data. They may only run on an emulator with
+     * the explicit opt-in flag, e.g.
+     *   adb shell am instrument -e disposableDevice true -w com.githabit.prototype.test/...
+     * Any missing prerequisite aborts BEFORE the first target-context write.
+     */
+    private fun requireDisposableDevice() {
+        val optedIn = InstrumentationRegistry.getArguments()
+            .getString("disposableDevice", "false").toBoolean()
+        val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.contains("emulator", ignoreCase = true) ||
+            Build.PRODUCT.startsWith("sdk_gphone") ||
+            Build.PRODUCT.contains("emulator", ignoreCase = true) ||
+            Build.HARDWARE.contains("ranchu") ||
+            Build.HARDWARE.contains("goldfish")
+        check(optedIn && isEmulator) {
+            "Refusing to run: these tests replace app workspace storage. " +
+                "Use a disposable emulator with instrumentation argument disposableDevice=true " +
+                "(optedIn=$optedIn, isEmulator=$isEmulator)."
+        }
+    }
+
     @Before fun launchFreshWorkspace() {
+        requireDisposableDevice()
         store.write(Workspace())
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("google-sign-in")
