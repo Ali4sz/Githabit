@@ -140,6 +140,69 @@ class GitHabitViewModelLoadTest {
         assertTrue(vm.load is WorkspaceLoad.Ready)
     }
 
+    @Test fun unchangedHabitSaveDismissesWithoutWriteVersionOrSuccessNotice() = runTest(testDispatcher) {
+        val original = populated()
+        val bytes = WorkspaceJson.encode(original).toByteArray()
+        val access = FakeAccessForViewModel(bytes)
+        val vm = model(access)
+        val notices = notices(vm)
+        advanceUntilIdle()
+        vm.overlay = Overlay.RepoForm("read")
+        vm.saveHabit("read", HabitDraft("Read", "", 20.0, "pages"))
+        advanceUntilIdle()
+        assertNull(vm.overlay)
+        assertFalse(vm.busy)
+        assertEquals(original, vm.workspace)
+        assertArrayEquals(bytes, access.stored)
+        assertEquals(0, access.writes)
+        assertTrue(notices.isEmpty())
+    }
+
+    @Test fun unchangedCorrectionDismissesWithoutCreatingUndoAndRetainsPriorUndo() = runTest(testDispatcher) {
+        val original = populated().addCommit("read", 1.0, clock.date, id = "second")
+        val access = FakeAccessForViewModel(WorkspaceJson.encode(original).toByteArray())
+        val vm = model(access)
+        val notices = notices(vm)
+        advanceUntilIdle()
+        vm.removeCommit("second")
+        advanceUntilIdle()
+        val token = requireNotNull(notices.single().undoId)
+        val writes = access.writes
+        notices.clear()
+        vm.overlay = Overlay.LogForm("read", "entry")
+        vm.saveCommit("read", "entry", 5.0, "")
+        advanceUntilIdle()
+        assertNull(vm.overlay)
+        assertFalse(vm.busy)
+        assertEquals(writes, access.writes)
+        assertTrue(notices.isEmpty())
+        vm.undo(token)
+        advanceUntilIdle()
+        assertEquals(original, vm.workspace)
+    }
+
+    @Test fun invalidOrFailedHabitSaveStillRetainsOpenForm() = runTest(testDispatcher) {
+        val original = populated()
+        val access = FakeAccessForViewModel(WorkspaceJson.encode(original).toByteArray())
+        val vm = model(access)
+        val notices = notices(vm)
+        advanceUntilIdle()
+        val form = Overlay.RepoForm("read")
+        vm.overlay = form
+        vm.saveHabit("read", HabitDraft(" ", "", 20.0, "pages"))
+        advanceUntilIdle()
+        assertEquals(form, vm.overlay)
+        assertEquals(0, access.writes)
+        assertEquals(1, notices.size)
+        access.failAllWrites = true
+        vm.saveHabit("read", HabitDraft("Read", "", 30.0, "pages"))
+        advanceUntilIdle()
+        assertEquals(form, vm.overlay)
+        assertEquals(original, vm.workspace)
+        assertTrue(vm.load is WorkspaceLoad.Ready)
+        assertTrue(notices.last().message.contains("previous file was verified"))
+    }
+
     @Test fun commandsCannotWriteWhileStartupIsQueued() = runTest(testDispatcher) {
         val access = FakeAccessForViewModel()
         val vm = model(access)

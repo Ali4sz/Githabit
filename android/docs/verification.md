@@ -4,6 +4,11 @@ Dated, configuration-specific results only. Historical reports in `app/build/` o
 `README.md` describing the pre-rewrite prototype are not evidence for the current app.
 Entries list what actually ran; anything not listed is unverified, not passed.
 
+Task 3 continuation: [pure schedule/calendar/analytics verification](task3-verification.md)
+records the atomic domain changes, no-op form regression fix, and final forced run
+(142 tests per variant). Task 2's results below remain historical storage evidence,
+not verification of the later source. Task 3 is still an intermediate v1/daily-UI build.
+
 ## Initial environment
 
 - Host: Linux (Ubuntu 26.04 base), OpenJDK 21.0.12, Android SDK at `~/Android/Sdk`

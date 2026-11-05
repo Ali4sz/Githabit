@@ -30,9 +30,10 @@ eight existing advisory warnings. Debug app and separate test APK assemble passe
 `git diff --check` passed. Log: `/tmp/opencode/task3a-verified-build.log` (temporary).
 No connected tests were run for this pure-domain increment.
 
-Remaining: indexed daily analytics, historical period resolver, weekly assessment and
-summaries. Command-level no-op feedback/overlay dismissal is owned by Task 5; the
-current ViewModel returns early for unchanged snapshots. The legacy fixture inventory,
+At this checkpoint, remaining work was indexed daily analytics, historical period
+resolution, weekly assessment and summaries. No-op overlay dismissal was initially
+deferred, then fixed by the follow-up below after review established a runtime regression.
+The legacy fixture inventory,
 device/accessibility/capacity checks, and sample-free artifact gates remain outstanding.
 
 ## Change 2/4 — indexed daily progress and activity (2026-11-05)
@@ -129,3 +130,51 @@ No connected tests. Schema migration and schedule-aware runtime UI are still fut
 | 5 (pure portion): supplied evaluation date, stored-date identity, local date/boundary arithmetic | `ProgressAnalyticsTest`, `WeekCalendarTest`, `WeeklyAnalyticsTest`; lifecycle/serialized commands belong to Task 5 |
 | 6 (pure portion): numeric vs quota vs activity, separate adherence, date/week/Today summaries, index reuse | `ProgressAnalyticsTest`, `WeeklyAnalyticsTest`; accessible rendering belongs to UI tasks |
 | 8 (pure portion): all 49 pairs, empty guard, pending replacement/cancellation, fixed/chained bridges, original-date activation | `WeekCalendarTest`, `WeeklyAnalyticsTest`; persistence/Settings integration belongs to Tasks 4/5/7 |
+
+## Integration follow-up and final verification (2026-11-05)
+
+Source: the commit containing this entry, based on `b827c88`. The four domain commits
+are `941682b`, `62fbdd6`, `44552fa`, and `b827c88`.
+
+An unchanged validated repo/correction form now dismisses without persistence, success
+notice, or a new Undo token. Validation/write failures still retain the form. A prior
+Undo remains usable after an unchanged correction. Two added regression tests failed
+before the fix, as intended; all three new command tests passed after it. No general
+command/Undo rewrite was introduced ahead of Task 5.
+
+Final forced verification from `android/`:
+
+```sh
+./gradlew :app:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest \
+  --rerun-tasks --console=plain --no-daemon
+```
+
+Completed before `2026-11-05T21:17:08+03:00`, **exit 0, BUILD SUCCESSFUL**, 1m 10s,
+105 tasks executed (not reused cached test results).
+
+| Check | Result |
+| --- | --- |
+| Debug unit tests | 142 tests, zero failures/errors |
+| Release unit tests | 142 tests, zero failures/errors |
+| Domain breakdown per variant | 12 existing habit + 13 schedule + 14 daily analytics + 14 calendar + 26 weekly analytics |
+| Other regression tests per variant | 5 JSON + 32 store + 5 file-access + 21 ViewModel |
+| Debug lint | Zero errors, eight existing advisory warnings |
+| Debug app / separate instrumented test APK | Both freshly built |
+| Whitespace | `git diff --check` passed |
+| Connected/device/accessibility/fixture-free delivery audit | Not run for this domain increment; not claimed |
+
+Log: `/tmp/opencode/task3-final-verified-build.log`; red/green regression logs:
+`/tmp/opencode/task3-noop-red.log`, `/tmp/opencode/task3-noop-green.log` (temporary).
+Generated reports: `app/build/reports/tests/testDebugUnitTest/`,
+`app/build/reports/tests/testReleaseUnitTest/`, `app/build/reports/lint-results-debug.html`.
+
+Intermediate debug APK SHA-256:
+`01b2e7074811ae962854ebeffcd9399d4bc170c22a494e26ac2be4d6040ca145`.
+This artifact is still **v1, sample-bearing, and daily-UI-only**, not a delivery.
+
+Task 3's pure calculations are complete. Next is Task 4's lossless v2 schema/migration,
+including the outstanding legacy fixture inventory, before enabling schedule/calendar
+commands in the app. Date-consistent/conflict-aware commands, runtime sample removal,
+Settings/forms/UI, restore, device/accessibility/capacity verification, and final artifact
+inspection remain in their owning later tasks. No remote publication or personal-workspace
+mutation occurred during Task 3.

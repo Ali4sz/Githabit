@@ -234,8 +234,12 @@ class GitHabitViewModel(
                     refreshDate()
                     val before = workspace
                     val next = transform(before)
-                    // No-op commands persist nothing, announce nothing, and create no undo token.
-                    if (next == before) return@withLock
+                    // A validated unchanged form is finished, but no-op commands still
+                    // persist nothing, announce nothing, and create no undo token.
+                    if (next == before) {
+                        if (dismiss) overlay = null
+                        return@withLock
+                    }
                     // Build the inverse before anything is written: a builder failure must
                     // not leave a persisted change behind a misleading failure notice.
                     val inverse = undo?.invoke(before, next)
