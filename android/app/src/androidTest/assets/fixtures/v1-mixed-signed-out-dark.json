@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "signedIn": false,
+  "onboarded": false,
+  "darkTheme": true,
+  "name": "Alex",
+  "bio": "Building a better everyday.",
+  "habits": [
+    {
+      "id": "sample-0", "name": "Edited legacy repo", "description": "Test-only mixed-origin record; never auto-delete",
+      "unit": "pages", "icon": "JOURNAL", "color": "PURPLE", "createdOn": "2025-12-29",
+      "versions": [
+        {"date": "2025-12-29", "target": 20, "status": "ACTIVE"},
+        {"date": "2026-01-01", "target": 25, "status": "ACTIVE"}
+      ]
+    },
+    {
+      "id": "personal-paused", "name": "Paused personal repo", "description": "", "unit": "minutes",
+      "icon": "CALM", "color": "TEAL", "createdOn": "2025-12-29",
+      "versions": [{"date": "2025-12-29", "target": 10, "status": "PAUSED"}]
+    },
+    {
+      "id": "personal-archived", "name": "Archived personal repo", "description": "", "unit": "entry",
+      "icon": "BOOK", "color": "GREEN", "createdOn": "2025-12-29",
+      "versions": [{"date": "2025-12-29", "target": 1, "status": "ARCHIVED"}]
+    }
+  ],
+  "commits": [
+    {"id": "sample-0-2025-12-29", "habitId": "sample-0", "amount": 20, "date": "2025-12-29", "timestamp": "2025-12-29T08:30:00Z", "note": ""},
+    {"id": "personal-on-legacy", "habitId": "sample-0", "amount": 7.125, "date": "2026-01-01", "timestamp": "2026-01-01T12:00:00Z", "note": "Personal addition to edited legacy repo"}
+  ]
+}

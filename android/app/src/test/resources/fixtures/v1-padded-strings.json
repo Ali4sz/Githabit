@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "signedIn": false,
+  "onboarded": true,
+  "darkTheme": false,
+  "name": "  Legacy name  ",
+  "bio": "  Preserve surrounding whitespace  ",
+  "habits": [
+    {
+      "id": " padded-id ", "name": "  Legacy repo  ", "description": "  Intentional spacing  ", "unit": " pages ",
+      "icon": "BOOK", "color": "GREEN", "createdOn": "2026-01-01",
+      "versions": [{"date": "2026-01-01", "target": 0.3, "status": "ACTIVE"}]
+    }
+  ],
+  "commits": [
+    {"id": " padded-commit ", "habitId": " padded-id ", "amount": 0.1, "date": "2025-12-31", "timestamp": "2030-01-01T00:00:00Z", "note": "  Preserve legacy dates and note verbatim  "},
+    {"id": "future-stored-date", "habitId": " padded-id ", "amount": 0.2, "date": "2050-01-01", "timestamp": "2026-01-01T00:00:00Z", "note": "Stored date is not derived from timestamp"}
+  ]
+}

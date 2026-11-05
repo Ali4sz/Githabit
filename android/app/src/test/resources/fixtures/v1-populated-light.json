@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "signedIn": true,
+  "onboarded": true,
+  "darkTheme": false,
+  "name": "Fixture owner",
+  "bio": "Test-only history with a quote: \"keep\" and emoji 🌱",
+  "habits": [
+    {
+      "id": "personal-repo",
+      "name": "Practice",
+      "description": "Recorded by the test fixture",
+      "unit": "minutes",
+      "icon": "CODE",
+      "color": "BLUE",
+      "createdOn": "2024-02-28",
+      "versions": [
+        {"date": "2024-03-02", "target": 30, "status": "ACTIVE"},
+        {"date": "2024-02-28", "target": 20, "status": "ACTIVE"},
+        {"date": "2024-03-01", "target": 20, "status": "PAUSED"}
+      ]
+    }
+  ],
+  "commits": [
+    {"id": "fractional", "habitId": "personal-repo", "amount": 0.125, "date": "2024-02-29", "timestamp": "2024-03-01T01:15:00Z", "note": "Keep stored local date"},
+    {"id": "paused-later", "habitId": "personal-repo", "amount": 20, "date": "2024-03-01", "timestamp": "2024-03-01T10:00:00Z", "note": "Logged before same-day pause"},
+    {"id": "new-target", "habitId": "personal-repo", "amount": 35, "date": "2024-03-02", "timestamp": "2024-03-02T11:00:00.123Z", "note": "Excess stays recorded"}
+  ]
+}
