@@ -53,6 +53,7 @@ data class Workspace(
     val bio: String = "Building a better everyday.",
     val habits: List<Habit> = emptyList(),
     val commits: List<Commit> = emptyList(),
+    val calendar: WeekCalendar = WeekCalendar(),
 )
 
 data class HabitDraft(

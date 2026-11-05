@@ -63,3 +63,27 @@ release ran afresh. Lint: zero errors/eight existing advisories. Debug APK assem
 The old `progress`/`dailyScore` UI path is deliberately unchanged; schedule-aware UI
 consumers will share this new index rather than construct one per cell. Calendar
 resolution, weekly assessment, adherence, and composed summaries follow next.
+
+## Change 3/4 — historical calendar periods (2026-11-05)
+
+Source: the commit containing this entry, based on `62fbdd6`.
+
+- `WeekCalendar` provides immutable ordered transitions, separate replaceable pending
+  requests, half-open full weeks and short bridges, effective preference, and projected
+  first-full-week dates. Binary lookup is shared by all future weekly consumers.
+- Pure requests preserve the current period, fix started bridges, replace/cancel only
+  pending changes, queue at bridge ends, and honor original boundaries after reopening.
+- `Workspace.calendar` defaults to Monday. `requestWeekStart` applies immediately only
+  without habits, commits, or calendar history. This domain command is not yet wired
+  to persistence/UI; the v1 round-trip safety boundary is unchanged.
+- Fourteen tests include all 49 weekday pairs, exact 1/6-day bridges, replacement,
+  cancellation, chains, activation on B, reopening, empty/nonempty workspaces, invalid
+  history, immutable inputs, clock rollback, leap/year/DST dates, and 84 sequential
+  requests proving every elapsed date retains its period without gaps or overlaps.
+
+From `android/`, `./gradlew :app:test :app:lintDebug :app:assembleDebug
+:app:assembleDebugAndroidTest --console=plain --no-daemon` passed (57s), exit 0,
+completed before `2026-11-05T20:55:28+03:00`. **113 tests per variant, zero
+failures/errors**; lint zero errors/eight existing advisories; both APKs assembled;
+`git diff --check` passed. Log: `/tmp/opencode/task3c-verified-build.log` (temporary).
+No connected tests or personal-workspace writes. Weekly assessment/summaries remain.
