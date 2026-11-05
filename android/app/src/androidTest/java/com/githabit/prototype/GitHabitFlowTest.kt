@@ -48,7 +48,9 @@ class GitHabitFlowTest {
         requireDisposableDevice()
         // No Activity exists yet: this test owner cannot race the application's store.
         store.load()
-        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace()))
+        // These existing screenshot/theme journeys explicitly start dark; the app's
+        // fresh/reset default is SYSTEM, independent of this isolated test preference.
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace(theme = ThemePreference.DARK)))
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("google-sign-in")
     }
@@ -159,14 +161,14 @@ class GitHabitFlowTest {
         compose.onNodeWithText("The bigger picture").assertIsDisplayed()
         compose.onNodeWithTag("open-settings").performClick()
         clickTag("theme-switch")
-        awaitState { !it.darkTheme }
+        awaitState { it.theme == com.githabit.prototype.domain.ThemePreference.LIGHT }
         scenario.recreate()
         waitForTag("page-SETTINGS")
         compose.onNodeWithTag("theme-switch").assertIsOff()
         scenario.close()
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("page-TODAY")
-        assertFalse(persisted().darkTheme)
+        assertEquals(com.githabit.prototype.domain.ThemePreference.LIGHT, persisted().theme)
         assertEquals(6, persisted().habits.size)
     }
 
@@ -262,7 +264,7 @@ class GitHabitFlowTest {
         waitForTag("page-SETTINGS")
         screenshot("10-settings")
         clickTag("theme-switch")
-        awaitState { !it.darkTheme }
+        awaitState { it.theme == com.githabit.prototype.domain.ThemePreference.LIGHT }
         compose.onNodeWithTag("tab-TODAY").performClick()
         waitForTag("page-TODAY")
         screenshot("11-today-light")

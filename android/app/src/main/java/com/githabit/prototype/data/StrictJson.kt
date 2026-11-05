@@ -21,7 +21,7 @@ internal class StrictJson(private val text: String) {
         if (position != text.length) malformed("Trailing content")
     }
 
-    private fun skipValue() {
+    fun skipValue() {
         whitespace()
         when (peek()) {
             '{' -> readObject { skipValue() }

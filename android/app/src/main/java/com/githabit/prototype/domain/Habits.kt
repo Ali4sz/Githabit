@@ -10,6 +10,7 @@ import kotlin.math.round
 enum class RepoStatus { ACTIVE, PAUSED, ARCHIVED }
 enum class HabitIcon { BOOK, MOVEMENT, CODE, WATER, CALM, JOURNAL }
 enum class HabitColor { GREEN, ORANGE, BLUE, TEAL, PURPLE, PINK }
+enum class ThemePreference { SYSTEM, LIGHT, DARK }
 
 /**
  * Dated habit configuration: target, status, and schedule effective from [date].
@@ -46,11 +47,10 @@ data class Commit(
 )
 
 data class Workspace(
-    val signedIn: Boolean = false,
     val onboarded: Boolean = false,
-    val darkTheme: Boolean = true,
-    val name: String = "Alex",
-    val bio: String = "Building a better everyday.",
+    val theme: ThemePreference = ThemePreference.SYSTEM,
+    val name: String = "",
+    val bio: String = "",
     val habits: List<Habit> = emptyList(),
     val commits: List<Commit> = emptyList(),
     val calendar: WeekCalendar = WeekCalendar(),
@@ -137,7 +137,13 @@ fun Workspace.createHabit(draft: HabitDraft, today: LocalDate, id: String = UUID
 
 fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Workspace {
     val habit = habits.first { it.id == id }
-    val fields = draft.normalized()
+    val fields = draft.normalized().let { normalized -> normalized.copy(
+        name = if (draft.name == habit.name) habit.name else normalized.name,
+        description = if (draft.description == habit.description) habit.description else normalized.description,
+        // v1 accepted surrounding whitespace. An unchanged locked unit is not a
+        // unit conversion, and unrelated edits must not rewrite its representation.
+        unit = if (normalized.unit == habit.unit.trim()) habit.unit else normalized.unit,
+    ) }
     require(fields.unit == habit.unit || commits.none { it.habitId == id }) {
         "Units stay fixed after your first commit. Create a new repo for a different unit."
     }
@@ -232,6 +238,6 @@ object SampleWorkspace {
                 }
             }
         }
-        return Workspace(signedIn = true, onboarded = true, habits = habits, commits = commits)
+        return Workspace(onboarded = true, habits = habits, commits = commits)
     }
 }

@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
@@ -20,6 +21,7 @@ import androidx.core.view.WindowCompat
 import com.githabit.prototype.Destination
 import com.githabit.prototype.GitHabitViewModel
 import com.githabit.prototype.WorkspaceLoad
+import com.githabit.prototype.domain.ThemePreference
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,7 +32,11 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     val savedState = key(vm.workspaceSession) { rememberSaveableStateHolder() }
     val sheetState = key(vm.workspaceSession, vm.overlay) { rememberSaveableStateHolder() }
     val view = LocalView.current
-    val dark = vm.workspace.darkTheme
+    val dark = when (vm.workspace.theme) {
+        ThemePreference.SYSTEM -> isSystemInDarkTheme()
+        ThemePreference.LIGHT -> false
+        ThemePreference.DARK -> true
+    }
     SideEffect {
         (view.context as? Activity)?.window?.let { window ->
             WindowCompat.getInsetsController(window, view).apply {
@@ -60,10 +66,11 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     }
     val load = vm.load
     val recovery = load as? WorkspaceLoad.Recovery
-    val authenticated = load is WorkspaceLoad.Ready && vm.workspace.signedIn && vm.workspace.onboarded
+    val localHistory = vm.workspace.onboarded || vm.workspace.habits.isNotEmpty() || vm.workspace.commits.isNotEmpty()
+    val authenticated = load is WorkspaceLoad.Ready && vm.entryOpen && localHistory
     val mainTabs = listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)
     BackHandler(enabled = vm.overlay == null && authenticated && vm.destination != Destination.TODAY) { vm.back() }
-    BackHandler(enabled = load is WorkspaceLoad.Ready && vm.workspace.signedIn && !vm.workspace.onboarded) {
+    BackHandler(enabled = load is WorkspaceLoad.Ready && vm.entryOpen && !localHistory) {
         if (vm.onboardingStep > 0) vm.onboardingStep-- else vm.signOut()
     }
     GitHabitTheme(dark) {
@@ -123,8 +130,8 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                             onSaveCopy = { recoveryExport.launch("githabit-recovery-${vm.today}.json") },
                             onStartOver = vm::startOverFromRecovery,
                         )
-                        !vm.workspace.signedIn -> SignInScreen(vm)
-                        !vm.workspace.onboarded -> OnboardingScreen(vm)
+                        !vm.entryOpen -> SignInScreen(vm)
+                        !localHistory -> OnboardingScreen(vm)
                         else -> {
                             savedState.SaveableStateProvider("${vm.destination}-${vm.selectedRepoId}") {
                                 Box(Modifier.fillMaxSize().testTag("page-${vm.destination.name}")) {

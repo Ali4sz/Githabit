@@ -3,6 +3,7 @@ package com.githabit.prototype.data
 import com.githabit.prototype.domain.HabitSchedule
 import com.githabit.prototype.domain.ProgressAnalytics
 import com.githabit.prototype.domain.RepoStatus
+import com.githabit.prototype.domain.ThemePreference
 import java.time.Instant
 import java.time.LocalDate
 import org.junit.Assert.*
@@ -12,14 +13,13 @@ import org.junit.Test
 class LegacyWorkspaceFixturesTest {
     @Test fun emptyFilesRetainExplicitLegacyPreferencesAndNoRecords() {
         val dark = WorkspaceJson.decode(legacyFixture("v1-empty-dark.json"))
-        assertTrue(dark.darkTheme)
-        assertFalse(dark.signedIn)
+        assertEquals(ThemePreference.DARK, dark.theme)
         assertFalse(dark.onboarded)
         assertEquals("Alex", dark.name)
         assertTrue(dark.habits.isEmpty())
         assertTrue(dark.commits.isEmpty())
         val light = WorkspaceJson.decode(legacyFixture("v1-empty-light.json"))
-        assertFalse(light.darkTheme)
+        assertEquals(ThemePreference.LIGHT, light.theme)
         assertTrue(light.onboarded)
         assertTrue(light.habits.isEmpty())
         assertTrue(light.commits.isEmpty())
@@ -28,7 +28,7 @@ class LegacyWorkspaceFixturesTest {
     @Test fun unsortedVersionsAndPausedDateCommitsRemainValid() {
         val state = WorkspaceJson.decode(legacyFixture("v1-populated-light.json"))
         val habit = state.habits.single()
-        assertEquals(listOf("2024-03-02", "2024-02-28", "2024-03-01"), habit.versions.map { it.date.toString() })
+        assertEquals(listOf("2024-02-28", "2024-03-01", "2024-03-02"), habit.versions.map { it.date.toString() })
         assertEquals(3, state.commits.size)
         assertEquals(0.125, state.commits.first().amount, 0.0)
         assertEquals(LocalDate.of(2024, 2, 29), state.commits.first().date)
@@ -42,7 +42,7 @@ class LegacyWorkspaceFixturesTest {
 
     @Test fun signedOutMixedOriginHistoryIsNotDisposable() {
         val state = WorkspaceJson.decode(legacyFixture("v1-mixed-signed-out-dark.json"))
-        assertFalse(state.signedIn)
+        assertTrue(state.onboarded)
         assertEquals("Alex", state.name)
         assertEquals("Building a better everyday.", state.bio)
         assertEquals(listOf("sample-0", "personal-paused", "personal-archived"), state.habits.map { it.id })

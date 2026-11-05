@@ -73,3 +73,82 @@ From `android/`, `./gradlew :app:test :app:lintDebug :app:assembleDebug
 `2026-11-05T22:43:16+03:00`: **160 tests per variant, zero failures/errors**;
 lint zero errors/eight existing advisories; debug APK assembled; `git diff --check`
 passed. Log: `/tmp/opencode/task4b-streaming-verified.log` (temporary). No connected tests.
+
+## Change 3 — coordinated v2 activation (2026-11-05)
+
+Source: the commit containing this entry, based on `4c0fb58`. The codec, model, storage
+and minimal UI compatibility are cut over together. See [format details](workspace-format-v2.md)
+for the exact schema, compatibility decisions and physical recovery policy.
+
+Implemented:
+
+- Strict two-pass streaming v1/v2 decode, v2 encode and source-version metadata; required
+  fields/types, IDs/references, enum/schedule/calendar invariants, exact decimal precision,
+  ordering, strings and shared input/output/count limits. No whole-document JSON tree.
+- Empty profile defaults, SYSTEM/LIGHT/DARK, and local onboarding independent of legacy
+  sign-in. Legacy records/profile values are preserved, including edited `sample-*` history,
+  unsorted versions (sorted without loss), padded strings/IDs, paused/precreation/future dates
+  and date/timestamp disagreements. Incompatible precision is rejected, not rounded.
+- Migration within the existing ownership lock: independently retain originals and outstanding
+  snapshots, then write and verify actual v2 **and** values. Observed bytes become the stale
+  snapshot baseline. Unknown/incompatible/oversized input never authorizes ordinary writes.
+- Bounded physical reads; streaming full-original preservation and frozen-source raw export;
+  sidecar evidence retention; explicit `.new`-only recovery; finalized staging and archive reuse
+  without an additional full copy. Overflow during verification remains indeterminate.
+- Snapshot export validation before opening a truncating provider destination. Minimal interim
+  theme/optional-profile rendering and schedule-preserving editing; old demo controls remain.
+
+Independent read-only review uncovered and prompted fixes before committing:
+
+1. Recovery retries could overwrite unpreserved in-memory originals/candidates. They now
+   fail closed until outstanding snapshots are independently retained, with regressions.
+2. The old editor could silently reset a restored weekly schedule to Daily; it now carries
+   the existing schedule. Padded legacy units/unchanged text remain editable and preserved.
+3. Recovery export selected its source after provider opening, allowing reset to change it;
+   source selection is now frozen before opening, with reset/reconciliation regressions.
+4. Sidecar-only evidence was archived but inaccessible. It now reaches recovery export and
+   explicit start-over, which re-preserves current physical evidence.
+5. Failed streaming staging could shadow complete archives; fragments are excluded from
+   complete selection and cleaned up. Finalized archives are verified/reused before requiring
+   another writable staging file. Byte-array LAST_GOOD writes use finalized staging too.
+
+Final read-only review reported no remaining material blockers in those paths. This is not
+a claim that later UI/transfer/accessibility tasks have passed.
+
+### Fresh verification
+
+From `android/`:
+
+```text
+./gradlew :app:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest \
+  --rerun-tasks --console=plain --no-daemon
+```
+
+Exit 0, BUILD SUCCESSFUL (1m 18s), **all 105 tasks executed**, completed before
+`2026-11-05T23:29:34+03:00`. **198 tests per variant, zero failures/errors**; lint **zero
+errors/eight existing advisories**; app and separate test APK assembled. `git diff --check`
+passed. Log: `/tmp/opencode/task4c-final.log` (temporary). No dependency/toolchain changes.
+
+New tests cover all schedule/theme/week-start representations, historical/chained bridges,
+elapsed pending records, strict schema negatives, legacy preservation, incompatible precision,
+missing/duplicate/orphan records, migration idempotence/failures/cold restart/backup rotation,
+source-format false positives, observed-byte verification, optional profiles and export ordering.
+Boundary tests exercise below/at/above habit, commit, total-configuration and ID limits, alongside
+the earlier actual 32 MiB/depth/Unicode tests. A physical MAX_BYTES+1 file retains its final byte
+in a full streamed archive. Fault tests cover overflow on load/verification, archive failure,
+sidecar replacement, frozen recovery exports, partial staging and no-space archive reuse.
+
+Intermediate artifact SHA-256 (identification, **not** fixture-free delivery certification):
+
+- Debug app: `8c84b656f7c30329c19ea678343c68fa41f00698df8d66c6856f583c56103ce3`.
+- Separate instrumentation APK: `517aa0f9fbbbb5cb98efd698d230a8b7d0e24e46a46c9e0810e062fe2f217342`.
+
+### Still unverified / not a handoff
+
+No connected tests ran. Two additional guarded platform tests (fixed legacy migration and
+`.new`-only start-over/export) compile, but execution still needs a provisioned disposable
+device and renewed guard authorization. No owner-installed history was accessed or backed up.
+Minimum-device memory certification, platform/device/accessibility coverage, real-data-only UI,
+restore confirmation, schedule controls and fixture-free artifact inspection remain later gates.
+Existing screenshot/theme tests now explicitly choose DARK in isolated setup rather than
+assuming that a fresh SYSTEM preference resolves dark. No new screenshot claim is made.

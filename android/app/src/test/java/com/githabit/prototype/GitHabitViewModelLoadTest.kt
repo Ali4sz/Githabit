@@ -98,6 +98,31 @@ class GitHabitViewModelLoadTest {
         assertEquals(expected, vm.workspace)
     }
 
+    @Test fun signedOutLegacyHistoryOpensLocallyAndSurvivesPreferenceEdits() = runTest(testDispatcher) {
+        val raw = com.githabit.prototype.data.legacyFixture("v1-mixed-signed-out-dark.json")
+        val access = FakeAccessForViewModel(raw)
+        val vm = model(access)
+        advanceUntilIdle()
+        assertTrue(vm.load is WorkspaceLoad.Ready)
+        assertTrue(vm.entryOpen)
+        assertTrue(vm.workspace.onboarded)
+        val migrated = vm.workspace
+        assertEquals(listOf("sample-0", "personal-paused", "personal-archived"), migrated.habits.map { it.id })
+        vm.saveProfile("", "")
+        advanceUntilIdle()
+        vm.setTheme(com.githabit.prototype.domain.ThemePreference.SYSTEM)
+        advanceUntilIdle()
+        assertEquals(migrated.habits, vm.workspace.habits)
+        assertEquals(migrated.commits, vm.workspace.commits)
+        assertEquals("", vm.workspace.name)
+        assertFalse(requireNotNull(access.stored).toString(Charsets.UTF_8).contains("signedIn"))
+        val restarted = model(access)
+        advanceUntilIdle()
+        assertEquals(vm.workspace, restarted.workspace)
+        assertTrue(restarted.entryOpen)
+        assertTrue(access.retainedCopies.any { it.contentEquals(raw) })
+    }
+
     @Test fun retryLoadReconcilesWhateverIsOnDisk() = runTest(testDispatcher) {
         val access = FakeAccessForViewModel("{ broken".toByteArray())
         val vm = model(access)
@@ -215,7 +240,7 @@ class GitHabitViewModelLoadTest {
     }
 
     @Test fun unsupportedStartupBlocksEveryOrdinaryMutation() = runTest(testDispatcher) {
-        val bytes = WorkspaceJson.encode(populated()).replace("\"version\": 1", "\"version\": 99").toByteArray()
+        val bytes = WorkspaceJson.encode(populated()).replace("\"version\":2", "\"version\":99").toByteArray()
         val access = FakeAccessForViewModel(bytes)
         val vm = model(access)
         advanceUntilIdle()

@@ -97,7 +97,11 @@ private fun RepoForm(vm: GitHabitViewModel, id: String?) {
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     Button(onClick = {
         try {
-            val draft = HabitDraft(name, description, parseAmount(target), unit, icon, color).normalized()
+            // Schedule controls arrive in Task 9. This interim form must retain an
+            // imported/restored schedule rather than silently resetting it to Daily.
+            val draft = HabitDraft(name, description, parseAmount(target), unit, icon, color,
+                habit?.versionOn(vm.today)?.schedule ?: HabitSchedule.Daily)
+            draft.normalized() // Validate here; retain untouched legacy strings for the command.
             error = null
             vm.saveHabit(id, draft)
         } catch (invalid: IllegalArgumentException) { error = invalid.message }

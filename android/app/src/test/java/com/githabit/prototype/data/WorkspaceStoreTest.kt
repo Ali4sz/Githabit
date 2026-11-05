@@ -11,7 +11,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorkspaceStoreTest {
-    private val state = Workspace()
+    private val state = Workspace(name = "Owner")
         .createHabit(HabitDraft("Read", "", 20.0, "pages"), LocalDate.of(2026, 11, 1), "sample-edited")
         .addCommit("sample-edited", 12.0, LocalDate.of(2026, 11, 2),
             note = "A < B \"quoted\" 🌱", id = "entry", timestamp = Instant.parse("2026-11-02T12:30:00Z"))
@@ -48,7 +48,7 @@ class WorkspaceStoreTest {
     }
 
     @Test fun unsupportedVersionIsPreservedNotReseeded() {
-        val newer = WorkspaceJson.encode(state).replace("\"version\": 1", "\"version\": 99").toByteArray()
+        val newer = WorkspaceJson.encode(state).replace("\"version\":2", "\"version\":99").toByteArray()
         val access = FakeAccessForViewModel(newer)
         val store = WorkspaceStore(access)
         assertEquals(UnreadableKind.UNSUPPORTED_VERSION, (store.load() as WorkspaceLoadResult.Unreadable).kind)
@@ -58,7 +58,7 @@ class WorkspaceStoreTest {
     }
 
     @Test fun invalidDataFailsValidationWithoutModification() {
-        val invalid = WorkspaceJson.encode(state).replace("\"name\": \"Alex\"", "\"name\": \"\"").toByteArray()
+        val invalid = WorkspaceJson.encode(state).replace("\"target\":20.0", "\"target\":0").toByteArray()
         val access = FakeAccessForViewModel(invalid)
         val store = WorkspaceStore(access)
         assertEquals(UnreadableKind.INVALID, (store.load() as WorkspaceLoadResult.Unreadable).kind)
@@ -246,7 +246,7 @@ class WorkspaceStoreTest {
     @Test fun invalidCandidateNeverReachesDisk() {
         val access = FakeAccessForViewModel(raw)
         val store = store(access)
-        assertThrows(IllegalArgumentException::class.java) { store.write(state.copy(name = "")) }
+        assertThrows(IllegalArgumentException::class.java) { store.write(state.copy(name = "x".repeat(41))) }
         assertEquals(0, access.writes)
         assertArrayEquals(raw, access.stored)
     }
@@ -268,12 +268,23 @@ class WorkspaceStoreTest {
         assertArrayEquals(bytes, store.recoveryBytes())
     }
 
+    @Test fun recoveryExportSourceIsFrozenBeforeDestinationOpenEvenIfResetCommits() {
+        val access = FakeAccessForViewModel(broken)
+        val store = store(access)
+        val snapshot = requireNotNull(store.recoverySnapshot())
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace()))
+        assertEquals(WriteOutcome.Committed, store.write(Workspace(bio = "later change")))
+        val output = java.io.ByteArrayOutputStream()
+        snapshot.writeTo(output)
+        assertArrayEquals(broken, output.toByteArray())
+    }
+
     @Test fun malformedUtf8InsideOtherwiseValidJsonNeverBecomesWritable() {
         val bytes = raw
-        val name = "Alex".toByteArray()
+        val name = "Owner".toByteArray()
         val position = (0..bytes.size - name.size).first { bytes.copyOfRange(it, it + name.size).contentEquals(name) }
         bytes[position] = 0xff.toByte()
-        assertEquals("\uFFFDlex", WorkspaceJson.decode(bytes.toString(Charsets.UTF_8)).name)
+        assertEquals("\uFFFDwner", WorkspaceJson.decode(bytes.toString(Charsets.UTF_8)).name)
         val access = FakeAccessForViewModel(bytes)
         val store = WorkspaceStore(access)
         assertEquals(UnreadableKind.CORRUPT, (store.load() as WorkspaceLoadResult.Unreadable).kind)
@@ -317,6 +328,36 @@ class WorkspaceStoreTest {
         assertEquals(WriteOutcome.Committed, store.write(Workspace().copy(bio = "another save")))
         assertTrue(access.retainedCopies.any { it.contentEquals(raw) })
         assertTrue(access.retainedCopies.any { it.contentEquals(broken) })
+    }
+
+    @Test fun repeatedFailedRecoveryDoesNotReplaceAnUnpreservedCandidate() {
+        val access = FakeAccessForViewModel(raw)
+        val store = store(access)
+        val candidate = state.copy(bio = "uncertain personal addition")
+        access.writeActions += { access.stored = broken; access.failPreservation = true }
+        assertEquals(WriteOutcome.Indeterminate, store.write(candidate))
+        access.failReads = true
+        assertTrue(store.replaceVerified(Workspace()) is WriteOutcome.Rejected)
+        access.failReads = false
+        access.failPreservation = false
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace()))
+        assertTrue(access.retainedCopies.any { it.contentEquals(WorkspaceJson.encode(candidate).toByteArray()) })
+    }
+
+    @Test fun retryCannotForgetAnUnpreservedOriginalWhenDiskChangesAgain() {
+        val first = "first damaged original".toByteArray()
+        val second = "second damaged original".toByteArray()
+        val access = FakeAccessForViewModel(first).apply { failPreservation = true }
+        val store = store(access)
+        val reads = access.reads
+        access.stored = second
+        assertTrue(store.reload() is WorkspaceLoadResult.Unreadable)
+        assertEquals(reads, access.reads)
+        assertArrayEquals(first, store.recoveryBytes())
+        access.failPreservation = false
+        assertTrue(store.reload() is WorkspaceLoadResult.Unreadable)
+        assertTrue(access.retainedCopies.any { it.contentEquals(first) })
+        assertTrue(access.retainedCopies.any { it.contentEquals(second) })
     }
 
     @Test fun coldRestartPreservesPersistedLastGoodBeforeStartOverAndRotation() {

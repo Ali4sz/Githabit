@@ -91,6 +91,7 @@ fun RecoveryScreen(state: WorkspaceLoad.Recovery, canSaveCopy: Boolean, busy: Bo
 
 @Composable
 fun SignInScreen(vm: GitHabitViewModel) {
+    val dark = LocalDarkTheme.current
     // Deliberately not rememberSaveable: credentials must never enter saved state or storage.
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -98,8 +99,8 @@ fun SignInScreen(vm: GitHabitViewModel) {
     PageColumn(Modifier.imePadding()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Brand(); Spacer(Modifier.weight(1f))
-            IconButton(onClick = { vm.setTheme(!vm.workspace.darkTheme) }) {
-                Icon(if (vm.workspace.darkTheme) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "Switch theme")
+            IconButton(onClick = { vm.setTheme(!dark) }) {
+                Icon(if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "Switch theme")
             }
         }
         Spacer(Modifier.height(2.dp))
@@ -201,7 +202,8 @@ fun TodayScreen(vm: GitHabitViewModel) {
                     Icon(Icons.Outlined.Add, "Create a new repo")
                 }
             }
-            Subtitle("Welcome back, ${state.name.substringBefore(' ')}. Let’s make today count.")
+            Subtitle(if (state.name.isBlank()) "Your personal workspace."
+                else "Welcome back, ${state.name.trim().substringBefore(' ')}. Let’s make today count.")
         }
         StatsRow(listOf(Triple("Goals reached\ntoday", "$complete", "/ ${active.size}"),
             Triple("Current activity\nstreak", "${state.activityStreak(today)}", "days"),
@@ -467,19 +469,20 @@ fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
             SectionHeading("Personal workspace")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(MaterialTheme.colorScheme.primaryContainer), Alignment.Center) {
-                    Text(vm.workspace.name.take(1).uppercase(), fontWeight = FontWeight.Bold, fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
+                    if (vm.workspace.name.isBlank()) Icon(Icons.Outlined.PersonOutline, null)
+                    else Text(vm.workspace.name.trim().take(1).uppercase(), fontWeight = FontWeight.Bold, fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
                 }
-                Column { Text(vm.workspace.name, style = MaterialTheme.typography.titleLarge); Subtitle("Local demo workspace") }
+                Column { Text(vm.workspace.name.ifBlank { "Your workspace" }, style = MaterialTheme.typography.titleLarge); Subtitle("Local workspace") }
             }
             OutlinedTextField(name, { if (it.length <= 40) name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(bio, { if (it.length <= 160) bio = it }, label = { Text("A note to yourself") }, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = { vm.saveProfile(name, bio) }, enabled = !vm.busy && name.isNotBlank()) { Text("Save profile") }
+            OutlinedButton(onClick = { vm.saveProfile(name, bio) }, enabled = !vm.busy) { Text("Save profile") }
         }
         Panel {
             SectionHeading("Look & feel")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Dark theme", style = MaterialTheme.typography.titleMedium); Subtitle("A familiar green, in your favorite light.") }
-                Switch(checked = vm.workspace.darkTheme, onCheckedChange = { vm.setTheme(it) }, modifier = Modifier.testTag("theme-switch"))
+                Switch(checked = LocalDarkTheme.current, onCheckedChange = { vm.setTheme(it) }, modifier = Modifier.testTag("theme-switch"))
             }
         }
         Panel {

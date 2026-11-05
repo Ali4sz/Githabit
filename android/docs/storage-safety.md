@@ -1,6 +1,7 @@
 # Workspace storage safety
 
-Implemented in Task 2; see [verification evidence](verification.md) for tested scope.
+Implemented in Task 2 and extended by Task 4. See [baseline evidence](verification.md),
+[Task 4 evidence](task4-verification.md) and [v2 format/recovery policy](workspace-format-v2.md).
 
 ## Ownership and publication
 
@@ -11,6 +12,9 @@ Implemented in Task 2; see [verification evidence](verification.md) for tested s
 - A successful load is required before ordinary writes. Missing storage is distinct from
   unreadable paths, sidecar recovery failures, invalid content and unsupported versions.
   UTF-8 is decoded strictly; damaged bytes are not silently replaced with U+FFFD.
+- v1 startup is preservation-first migration, not read-only compatibility. Success requires
+  actual v2 bytes and matching candidate values; the exact legacy original remains in an
+  independent RECOVERY archive. Stale-snapshot checks retain observed verified bytes.
 - ViewModel commands prepare the candidate/inverse before saving, do IO off Main, and
   publish only after read-back verification. Once writing starts, reconciliation completes
   even if the ViewModel is cleared. The bounded date ticker remains lifecycle-owned;
@@ -41,8 +45,17 @@ a confirmed replacement commits. Entered form state survives a temporary recover
 - Confirmed replacement preserves **all** outstanding snapshots, not just the corrupt
   primary, before clearing state. An uninspectable last-good file blocks replacement.
   Later backup rotation therefore cannot erase the sole retained good snapshot.
+- Before retries replace in-memory recovery slots, outstanding originals and uncertain
+  candidates must be preserved. Raw exports freeze their source before provider opening,
+  independent of subsequent reset/reconciliation.
+- Physical input is bounded. Oversized originals use streaming preservation/raw export;
+  no truncated prefix is accepted. Replacement stays blocked until oversized primary storage
+  is reconciled. Archived oversized last-good data does not block a healthy primary.
+- AtomicFile sidecar evidence is retained before recovery-capable reads can alter it.
+  A `.new`-only interrupted first write is exportable recovery, not writable empty state;
+  explicit replacement re-preserves it. Failed staging cannot shadow finalized archives.
 - All copies stay in app-private `filesDir`, covered by existing cloud/device-transfer
-  exclusions. Recovery export writes an immutable raw byte snapshot to a chosen document;
+  exclusions. Recovery export writes a frozen byte snapshot or streams a retained archive;
   it does not decode and re-encode damaged data.
 
 These safeguards are not a guarantee against hardware failure, power loss or exhausted
@@ -51,6 +64,7 @@ is safe. A failed document-provider export may leave an incomplete external file
 
 ## Scope boundary
 
-This checkpoint retains v1 compatibility and the existing prototype entry/forms. It does
-not remove or classify sample-looking records, add v2 capacity limits, or implement import.
-The real-data-only UI, migration, schedules and confirmed restore follow in later tasks.
+This checkpoint activates v2 and preservation-first v1 migration, but retains temporary
+prototype entry/forms. It does not remove or classify sample-looking records or implement
+import UI. Real-data-only entry, schedule controls, confirmed restore, minimum-device memory
+certification and fixture-free artifact delivery remain later gates.

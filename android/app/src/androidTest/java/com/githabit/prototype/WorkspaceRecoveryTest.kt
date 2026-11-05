@@ -96,7 +96,7 @@ class WorkspaceRecoveryTest {
     }
 
     @Test fun unsupportedFormatCannotEnterOrdinaryUi() {
-        val raw = WorkspaceJson.encode(Workspace()).replace("\"version\": 1", "\"version\": 99").toByteArray()
+        val raw = WorkspaceJson.encode(Workspace()).replace("\"version\":2", "\"version\":99").toByteArray()
         AtomicFileAccess(context).writeBytes(raw)
         launch()
         waitFor("recovery-retry")
@@ -125,12 +125,45 @@ class WorkspaceRecoveryTest {
         assertEquals(WriteOutcome.Committed, store.write(Workspace().copy(bio = "A test-only change")))
     }
 
+    @Test fun interruptedFirstWriteSidecarCanBeExportedAndExplicitlyReplaced() {
+        val raw = "interrupted test-only first write".toByteArray()
+        File(context.filesDir, AtomicFileAccess.FILE_NAME + ".new").writeBytes(raw)
+        val store = WorkspaceStore(context)
+        val result = store.load() as WorkspaceLoadResult.Unreadable
+        assertTrue(result.preserved)
+        assertTrue(store.hasRecoveryBytes)
+        assertEquals(WriteOutcome.Blocked, store.write(Workspace()))
+        val snapshot = requireNotNull(store.recoverySnapshot())
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace()))
+        val output = java.io.ByteArrayOutputStream()
+        snapshot.writeTo(output)
+        assertArrayEquals(raw, output.toByteArray())
+        assertEquals(WorkspaceLoadResult.Ready(Workspace()), store.reload())
+    }
+
+    @Test fun fixedSignedOutLegacyHistoryMigratesOnceAndRetainsItsOriginal() {
+        val raw = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("fixtures/v1-mixed-signed-out-dark.json").use { it.readBytes() }
+        AtomicFileAccess(context).writeBytes(raw)
+        val expected = WorkspaceJson.decode(raw)
+        val store = WorkspaceStore(context)
+        assertEquals(WorkspaceLoadResult.Ready(expected), store.load())
+        assertEquals(2, WorkspaceJson.decodeDocument(primary.readBytes()).sourceVersion)
+        assertTrue(expected.onboarded)
+        assertEquals(WorkspaceLoadResult.Ready(expected), WorkspaceStore(context).load())
+        assertEquals(WriteOutcome.Committed, store.write(expected.copy(bio = "Test-only later save")))
+        assertTrue(context.filesDir.listFiles()!!.any { it.name.startsWith("githabit-recovery-") && it.readBytes().contentEquals(raw) })
+        launch()
+        waitFor("page-TODAY")
+        compose.onNodeWithTag("google-sign-in").assertDoesNotExist()
+    }
+
     @Test fun productionAccessObjectsShareStorageOwnership() {
         assertSame(AtomicFileAccess(context).ownershipLock, AtomicFileAccess(context).ownershipLock)
     }
 
     @Test fun enteredDraftSurvivesRecoveryWhenPreviousWorkspaceIsReconciled() {
-        val previous = Workspace(signedIn = true, onboarded = true)
+        val previous = Workspace(onboarded = true)
         val raw = WorkspaceJson.encode(previous).toByteArray()
         val real = AtomicFileAccess(context)
         real.writeBytes(raw)

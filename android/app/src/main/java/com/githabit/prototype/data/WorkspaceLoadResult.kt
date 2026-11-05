@@ -3,7 +3,7 @@ package com.githabit.prototype.data
 import com.githabit.prototype.domain.Workspace
 
 /** Why a stored workspace could not be loaded. Drives recovery-screen guidance. */
-enum class UnreadableKind { CORRUPT, UNSUPPORTED_VERSION, INVALID, IO, INDETERMINATE }
+enum class UnreadableKind { CORRUPT, UNSUPPORTED_VERSION, INVALID, LEGACY_INCOMPATIBLE, CAPACITY, IO, INDETERMINATE }
 
 /** Result of loading the persisted workspace. Failures must never fall back to writable empty data. */
 sealed interface WorkspaceLoadResult {

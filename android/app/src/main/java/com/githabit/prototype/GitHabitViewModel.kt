@@ -16,6 +16,7 @@ import com.githabit.prototype.data.AtomicFileAccess
 import com.githabit.prototype.data.UnreadableKind
 import com.githabit.prototype.data.WorkspaceFileAccess
 import com.githabit.prototype.data.WorkspaceJson
+import com.githabit.prototype.data.WorkspaceJsonException
 import com.githabit.prototype.data.WorkspaceLoadResult
 import com.githabit.prototype.data.WorkspaceStore
 import com.githabit.prototype.data.WriteOutcome
@@ -79,6 +80,9 @@ class GitHabitViewModel(
         private set
     var overlay by mutableStateOf<Overlay?>(null)
     var onboardingStep by mutableIntStateOf(0)
+    /** Temporary entry-screen adapter until Task 7; never part of workspace storage. */
+    var entryOpen by mutableStateOf(false)
+        private set
     var workspaceSession by mutableIntStateOf(0)
         private set
 
@@ -128,12 +132,14 @@ class GitHabitViewModel(
         when (result) {
             is WorkspaceLoadResult.Missing -> {
                 workspace = Workspace()
+                entryOpen = false
                 load = WorkspaceLoad.Ready(isNew = true)
             }
             is WorkspaceLoadResult.Ready -> {
                 // Reconciliation is not a replay. Changed data invalidates stale inverses/routes.
                 if (load is WorkspaceLoad.Recovery && workspace != result.workspace) clearTransientState()
                 workspace = result.workspace
+                entryOpen = workspace.onboarded || workspace.habits.isNotEmpty() || workspace.commits.isNotEmpty()
                 refreshDate()
                 load = WorkspaceLoad.Ready(isNew = false)
             }
@@ -172,6 +178,7 @@ class GitHabitViewModel(
         destination = Destination.TODAY
         selectedRepoId = null
         onboardingStep = 0
+        entryOpen = false
     }
 
     private fun replaceWithEmpty(fromRecovery: Boolean) {
@@ -306,19 +313,27 @@ class GitHabitViewModel(
         return id
     }
 
-    fun signIn() = update(after = { onboardingStep = 0; navigate(Destination.TODAY, mainTab = true) }) {
-        it.copy(signedIn = true)
+    fun signIn() {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        entryOpen = true
+        onboardingStep = 0
+        navigate(Destination.TODAY, mainTab = true)
     }
 
-    fun explore() = update(after = { navigate(Destination.TODAY, mainTab = true) }) {
-        if (it.habits.isNotEmpty() || it.onboarded) it.copy(signedIn = true, onboarded = true)
-        else SampleWorkspace.create().copy(darkTheme = it.darkTheme)
+    fun explore() {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        if (workspace.onboarded) { signIn(); return }
+        update(after = { entryOpen = true; navigate(Destination.TODAY, mainTab = true) }) {
+            if (it.habits.isNotEmpty() || it.commits.isNotEmpty()) it.copy(onboarded = true)
+            else SampleWorkspace.create().copy(theme = it.theme, name = it.name, bio = it.bio, calendar = it.calendar)
+        }
     }
 
     fun startEmpty() = update(after = {
+        entryOpen = true
         navigate(Destination.TODAY, mainTab = true)
         overlay = Overlay.RepoForm()
-    }) { it.copy(signedIn = true, onboarded = true) }
+    }) { it.copy(onboarded = true) }
 
     fun saveHabit(id: String?, draft: HabitDraft) = update(
         message = if (id == null) "Your new repo is ready. Start with a small commit." else "Repo updated. Keep growing.",
@@ -367,16 +382,19 @@ class GitHabitViewModel(
         }
     }
 
-    fun setTheme(dark: Boolean) = update { it.copy(darkTheme = dark) }
+    fun setTheme(dark: Boolean) = setTheme(if (dark) ThemePreference.DARK else ThemePreference.LIGHT)
+    fun setTheme(theme: ThemePreference) = update { it.copy(theme = theme) }
 
     fun saveProfile(name: String, bio: String) = update(message = "Your workspace feels a little more like you.") {
-        require(name.trim().length in 1..40) { "Enter a name of 1–40 characters." }
+        require(name.trim().length <= 40) { "Keep your display name within 40 characters." }
         require(bio.length <= 160) { "Keep your note within 160 characters." }
         it.copy(name = name.trim(), bio = bio.trim())
     }
 
-    fun signOut() = update(after = { undos.clear(); overlay = null; navigate(Destination.TODAY, mainTab = true) }) {
-        it.copy(signedIn = false)
+    fun signOut() {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        entryOpen = false
+        undos.clear(); overlay = null; navigate(Destination.TODAY, mainTab = true)
     }
 
     /** Confirmed reset: preserve a copy first, then replace with verified empty data. */
@@ -388,13 +406,15 @@ class GitHabitViewModel(
         viewModelScope.launch {
             try {
                 withContext(ioDispatcher) {
-                    requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(uri, "wt"))
-                        .bufferedWriter().use { it.write(WorkspaceJson.encode(snapshot.copy(signedIn = false))) }
+                    WorkspaceJson.export(snapshot) {
+                        requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(uri, "wt"))
+                    }
                 }
                 noticeChannel.trySend(Notice("Your workspace has been exported."))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice("Export failed. The chosen file may be incomplete; try another location."))
+                noticeChannel.trySend(Notice(if (error is WorkspaceJsonException) "Export was not started: ${error.message}"
+                    else "Export failed. The chosen file may be incomplete; try another location."))
             }
         }
     }
@@ -404,14 +424,16 @@ class GitHabitViewModel(
         if (load !is WorkspaceLoad.Recovery) return
         viewModelScope.launch {
             try {
-                val bytes = withContext(ioDispatcher) { store.recoveryBytes() }
-                if (bytes == null) {
+                val snapshot = mutation.withLock {
+                    if (load !is WorkspaceLoad.Recovery) null else withContext(ioDispatcher) { store.recoverySnapshot() }
+                }
+                if (snapshot == null) {
                     noticeChannel.trySend(Notice("No readable recovery bytes are available to save."))
                     return@launch
                 }
                 withContext(ioDispatcher) {
                     requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(uri, "wt"))
-                        .use { it.write(bytes) }
+                        .use(snapshot::writeTo)
                 }
                 noticeChannel.trySend(Notice("A recovery snapshot was saved byte-for-byte. It may need repair before use."))
             } catch (error: Exception) {
