@@ -29,12 +29,65 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.githabit.prototype.*
+import com.githabit.prototype.data.UnreadableKind
 import com.githabit.prototype.domain.*
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
+
+@Composable
+fun RecoveryScreen(state: WorkspaceLoad.Recovery, canSaveCopy: Boolean, busy: Boolean,
+    onRetry: () -> Unit, onSaveCopy: () -> Unit, onStartOver: () -> Unit) {
+    var confirmStartOver by rememberSaveable { mutableStateOf(false) }
+    PageColumn(Modifier.imePadding()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Outlined.CloudOff, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.error)
+            Text("Your data needs attention", style = MaterialTheme.typography.headlineMedium)
+            Subtitle(state.reason)
+        }
+        Panel {
+            SectionHeading("What this means")
+            Subtitle(when (state.kind) {
+                UnreadableKind.UNSUPPORTED_VERSION ->
+                    "This app cannot open the file's format. Its bytes were not modified. A compatible app version may be needed."
+                UnreadableKind.IO ->
+                    "The storage location could not be read. This can be temporary — trying again is safe."
+                UnreadableKind.INDETERMINATE ->
+                    "The last save could not be verified. The file may contain the previous or attempted change. Saving is paused until storage can be re-read."
+                else ->
+                    "The saved workspace file is damaged or did not pass validation. It was never modified by opening the app."
+            })
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatusBadge(if (state.preserved) "Recovery copy verified" else "Preservation unavailable", state.preserved)
+                if (state.kind == UnreadableKind.INDETERMINATE) StatusBadge("Paused for recovery")
+            }
+        }
+        Panel {
+            SectionHeading("Recovery options")
+            Button(onClick = onRetry, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                .testTag("recovery-retry")) {
+                Text("Try reading your data again")
+            }
+            OutlinedButton(onClick = onSaveCopy, enabled = canSaveCopy && !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("recovery-save-copy")) {
+                Icon(Icons.Outlined.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text("Save a copy of the data")
+            }
+            TextButton(onClick = { confirmStartOver = true }, enabled = !busy,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().testTag("recovery-start-over")) {
+                Text("Start over with an empty workspace")
+            }
+        }
+        Subtitle("Retry only re-reads storage. Start over requires confirmation and a verified preservation copy before replacement. Recovery copies are a safeguard, not a substitute for an external backup.")
+    }
+    if (confirmStartOver) ConfirmDialog("Replace this workspace with an empty one?",
+        "A preservation copy of the current data is saved on this device first. The empty workspace replaces the file that could not be opened.",
+        "Start over", destructive = true,
+        onDismiss = { confirmStartOver = false }, onConfirm = { confirmStartOver = false; onStartOver() })
+}
 
 @Composable
 fun SignInScreen(vm: GitHabitViewModel) {

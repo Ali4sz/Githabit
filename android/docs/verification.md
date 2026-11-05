@@ -4,7 +4,7 @@ Dated, configuration-specific results only. Historical reports in `app/build/` o
 `README.md` describing the pre-rewrite prototype are not evidence for the current app.
 Entries list what actually ran; anything not listed is unverified, not passed.
 
-## Environment (fixed for this effort)
+## Initial environment
 
 - Host: Linux (Ubuntu 26.04 base), OpenJDK 21.0.12, Android SDK at `~/Android/Sdk`
   (platforms 36/37.0, build-tools 35.0.0/36.0.0, platform-tools, emulator + KVM,
@@ -12,9 +12,9 @@ Entries list what actually ran; anything not listed is unverified, not passed.
 - Toolchain under test: AGP 8.13.0, Gradle wrapper 8.14.3, Kotlin/Compose compiler
   2.2.20, Compose BOM 2025.09.01. Known caveat: AGP 8.13 sits beyond Kotlin 2.2.20's
   published fully-supported AGP range; builds below are the practical evidence.
-- Instrumented tests are destructive (replace app workspace). They are guarded: they
-  refuse to run unless `disposableDevice=true` is passed as an instrumentation argument
-  AND the device reports emulator properties. Never run them on a personal installation.
+- Instrumented tests are destructive (replace app workspace). The strengthened Task 2
+  guard requires opt-in, exact target/test packages, a dedicated named disposable AVD,
+  and a matching provisioned device marker. Never run them on a personal installation.
 
 ## Task 1 — baseline (2026-11-04, pre-implementation snapshot `3aa6de6`)
 
@@ -28,3 +28,116 @@ reused caches):
 | Debug APK | `:app:assembleDebug` | `app/build/outputs/apk/debug/app-debug.apk` (18,395,964 bytes) |
 | Guard (safety-only change, this task) | `GitHabitFlowTest.requireDisposableDevice()` | Fail-closed check added before any target-context write; destructive instrumentation requires `disposableDevice=true` + emulator properties |
 
+Baseline timestamp provenance: this entry was recorded in commit `723dc91`, dated
+`2026-11-04T15:58:50+03:00`. The original raw baseline log is not retained here; the exact
+execution timestamp cannot be independently reconstructed. No connected baseline was run.
+The planned v1 fixture inventory and preservation of any owner's installed workspace were
+not established by that baseline. No personal device/workspace has been inspected or changed.
+
+## Task 2 — storage safety (2026-11-05)
+
+Source: the Task 2 commit containing this entry, based on `723dc91`. This is an intermediate
+**v1, sample-bearing prototype build**, not the real-data-only personal-use deliverable.
+
+### Final local verification
+
+From `android/`:
+
+```sh
+./gradlew :app:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest \
+  --rerun-tasks --console=plain --no-daemon
+```
+
+Final forced run: **BUILD SUCCESSFUL**, 105 tasks executed, 2m 4s, completed before
+`2026-11-05T13:33:22+03:00`. Exit status was captured directly, not through a filtering pipe.
+
+| Check | Fresh result |
+| --- | --- |
+| Debug unit tests | 72 tests, 0 failures, 0 errors |
+| Release unit tests | 72 tests, 0 failures, 0 errors |
+| Unit breakdown per variant | 12 domain + 5 JSON + 32 store + 5 file access + 18 ViewModel |
+| Lint | 0 errors, 8 warnings: target/version availability advisories; no toolchain upgrade made |
+| Debug APK and separate test APK | Both built successfully |
+| Diff whitespace | `git diff --check` passed |
+
+Generated reports: `app/build/reports/tests/testDebugUnitTest/`,
+`app/build/reports/tests/testReleaseUnitTest/`, and `app/build/reports/lint-results-debug.html`.
+Raw execution logs for this session are under `/tmp/opencode/task2-verified-build.log`
+and `/tmp/opencode/task2-verified-connected.log` (temporary, not repository assets).
+
+### Disposable-device verification
+
+- A fresh, separate AVD was created under `/tmp/opencode/githabit-task2-avds/`, named
+  `GitHabit_Disposable_Task2_20261105`; serial **emulator-5580**; Google APIs x86_64/API 36.
+- The pre-existing `GitHabit_API_36` AVD was not started or modified. No devices were
+  connected before provisioning. The app package was absent on the fresh disposable AVD.
+- Physical window: 1080 × 2400px, density 480dpi (nominal 360 × 800dp), default font scale.
+  This was a storage/flow run, not the full accessibility or usable-inset matrix.
+- Emulator: headless, KVM, SwiftShader, no snapshots. Initial memory was 2048 MiB;
+  the host killed that process with exit 137 during a later build (cause unconfirmed).
+  It was restarted at 1536 MiB; final device tests then completed successfully.
+- Final instrumented run: **15/15 passed**, 72.645s, finished
+  `2026-11-05T13:34:57+03:00`: five existing flow tests, eight storage/recovery tests,
+  and two non-destructive guard contract tests.
+- After verification, the authorization marker was removed and only this disposable
+  emulator was shut down. Its temporary AVD files remain outside the repository.
+- Negative actual-setup test: omit authorization, launch one existing flow test, expect
+  the guard to reject setup. It did reject; a prewritten `guard-sentinel` file remained
+  byte-identical, with no uninitialized-scenario teardown exception. This expected
+  negative-test failure is separate from the passing 15-test suite.
+
+Reproduction, **only after provisioning and verifying a fresh disposable AVD**:
+
+```sh
+# Keep an exact -s device selector on every command. Never use an owner's live AVD.
+DEVICE=emulator-5580
+AVD=GitHabit_Disposable_Task2_20261105
+# TOKEN is a fresh 16–80-character alphanumeric/hyphen marker for this isolated run.
+adb -s "$DEVICE" shell getprop ro.boot.qemu.avd_name  # must equal $AVD
+adb -s "$DEVICE" shell "printf '%s' '$TOKEN' > /data/local/tmp/githabit-disposable-test-target"
+adb -s "$DEVICE" shell am instrument -w -r \
+  -e disposableDevice true \
+  -e expectedTargetPackage com.githabit.prototype \
+  -e expectedAvdName "$AVD" -e disposableToken "$TOKEN" \
+  com.githabit.prototype.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The instrumentation command's shell exit status alone does not prove success; the final
+runner output was checked for `OK (15 tests)` and absence of `FAILURES!!!`.
+
+### Artifact identity (intermediate, not delivered)
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `app/build/outputs/apk/debug/app-debug.apk` | `c3311247371e1d82b13cda1e029aedf6037748c3fbb61b10e742b4128aaba911` |
+| `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | `e0f8e100c340edc675f043d66d76f6048d3deba269e1343e28cf401500ae393a` |
+
+These are the exact APKs installed for the final 15-test run. The test APK is not an app
+deliverable. Fixture-exclusion certification is intentionally **not** claimed: runtime
+sample removal and the final artifact audit are Tasks 7 and 14.
+
+### Failure regressions and review
+
+- Missing/corrupt/unsupported/invalid startup; malformed UTF-8 inside valid JSON;
+  existing unreadable paths; real Android legacy `.bak` recovery.
+- Loading/recovery mutation gating, serialized access across independent store owners,
+  stale-snapshot rejection, verification before publication, and late write exceptions.
+- Verified previous-state rollback versus unknown outcome; no blind command replay;
+  failed Undo retry; cancellation while writing; failed reset retains route/overlay.
+- Raw-byte recovery export snapshot; verified, independently retained copies; failed
+  preservation; retained last-good data through cold restart, start-over and later rotation.
+- Real entered form text survives recovery and reconciliation to the previous workspace.
+  The first new device test exposed lost dialog state; moving its saveable provider inside
+  the modal composition fixed it. The final full suite passed after that correction.
+- Read-only review identified additional cold-restart preservation and ownership gaps;
+  each was fixed with regression coverage and re-reviewed without a remaining Task 2 blocker.
+- Existing backup configuration still excludes the entire app-private file domain:
+  `allowBackup=false`, `fullBackupContent=false`, and file exclusions for cloud/device transfer.
+
+### Still unverified / intentionally later
+
+No personal-data migration or owner's installed-data backup was attempted. Minimum-API
+devices, real storage exhaustion/power-loss behavior, process-death UI restoration, 200%
+text/TalkBack/keyboard coverage, document-provider failure UX, capacity boundaries, and
+fixture-free delivery remain later gates. v2/migration, schedule-aware typed Undo, local
+entry/sample removal, and validated restore are not implemented by this checkpoint.

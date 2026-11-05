@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -26,7 +27,7 @@ private fun parseAmount(text: String): Double = positive(text.trim().replace(','
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkspaceSheet(vm: GitHabitViewModel) {
+fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
     val overlay = vm.overlay ?: return
     key(overlay) {
         ModalBottomSheet(
@@ -34,17 +35,20 @@ fun WorkspaceSheet(vm: GitHabitViewModel) {
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Eyebrow("YOUR LOCAL WORKSPACE", Modifier.weight(1f))
-                    IconButton(onClick = { vm.overlay = null }, enabled = !vm.busy, modifier = Modifier.testTag("close-sheet")) { Icon(Icons.Outlined.Close, "Close sheet") }
-                }
-                when (overlay) {
-                    is Overlay.RepoForm -> RepoForm(vm, overlay.id)
-                    is Overlay.LogForm -> LogForm(vm, overlay)
-                    is Overlay.Day -> DayDetails(vm, overlay)
-                    Overlay.Guide -> Guide { vm.overlay = null }
+            // Inside the dialog's composition/registry, not around the dialog itself.
+            savedState.SaveableStateProvider("form") {
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Eyebrow("YOUR LOCAL WORKSPACE", Modifier.weight(1f))
+                        IconButton(onClick = { vm.overlay = null }, enabled = !vm.busy, modifier = Modifier.testTag("close-sheet")) { Icon(Icons.Outlined.Close, "Close sheet") }
+                    }
+                    when (overlay) {
+                        is Overlay.RepoForm -> RepoForm(vm, overlay.id)
+                        is Overlay.LogForm -> LogForm(vm, overlay)
+                        is Overlay.Day -> DayDetails(vm, overlay)
+                        Overlay.Guide -> Guide { vm.overlay = null }
+                    }
                 }
             }
         }

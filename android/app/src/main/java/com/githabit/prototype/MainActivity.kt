@@ -8,7 +8,7 @@ import androidx.activity.viewModels
 import com.githabit.prototype.ui.GitHabitApp
 
 class MainActivity : ComponentActivity() {
-    private val model: GitHabitViewModel by viewModels()
+    private val model: GitHabitViewModel by viewModels { GitHabitViewModel.Factory }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

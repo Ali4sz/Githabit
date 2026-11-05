@@ -3,11 +3,19 @@ package com.githabit.prototype.data
 import com.githabit.prototype.domain.*
 import java.time.Instant
 import java.time.LocalDate
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** Versioned, explicit serialization. Authentication credentials are not part of the model. */
 object WorkspaceJson {
+    /** Damaged UTF-8 is recoverable input, never permission to replace bytes with U+FFFD. */
+    fun decode(bytes: ByteArray): Workspace = decode(Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes)).toString())
+
     fun encode(state: Workspace): String = JSONObject().apply {
         put("version", 1)
         put("signedIn", state.signedIn)

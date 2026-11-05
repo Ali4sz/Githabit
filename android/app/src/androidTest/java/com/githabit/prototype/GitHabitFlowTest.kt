@@ -1,7 +1,6 @@
 package com.githabit.prototype
 
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -9,7 +8,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.espresso.Espresso.closeSoftKeyboard
 import com.githabit.prototype.data.WorkspaceStore
 import com.githabit.prototype.data.WorkspaceJson
+import com.githabit.prototype.data.WriteOutcome
 import com.githabit.prototype.domain.*
+import com.githabit.prototype.fixtures.verifyDisposableDevice
 import java.time.LocalDate
 import org.junit.After
 import org.junit.Assert.*
@@ -25,6 +26,7 @@ class GitHabitFlowTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val store = WorkspaceStore(context)
     private lateinit var scenario: ActivityScenario<MainActivity>
+    private var disposableVerified = false
 
     // AtomicFile.openRead performs recovery and may delete an in-flight .new file.
     // Observe only the atomically renamed base file while the app is writing.
@@ -33,34 +35,28 @@ class GitHabitFlowTest {
     /**
      * Destructive guard (fail-closed): these tests replace the target app's workspace, and a
      * separate test APK does not isolate personal data. They may only run on an emulator with
-     * the explicit opt-in flag, e.g.
-     *   adb shell am instrument -e disposableDevice true -w com.githabit.prototype.test/...
+     * explicit opt-in, exact package/AVD match and a provisioned one-run device marker.
+     * See docs/verification.md before running; a generic emulator opt-in is insufficient.
      * Any missing prerequisite aborts BEFORE the first target-context write.
      */
     private fun requireDisposableDevice() {
-        val optedIn = InstrumentationRegistry.getArguments()
-            .getString("disposableDevice", "false").toBoolean()
-        val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
-            Build.FINGERPRINT.contains("emulator", ignoreCase = true) ||
-            Build.PRODUCT.startsWith("sdk_gphone") ||
-            Build.PRODUCT.contains("emulator", ignoreCase = true) ||
-            Build.HARDWARE.contains("ranchu") ||
-            Build.HARDWARE.contains("goldfish")
-        check(optedIn && isEmulator) {
-            "Refusing to run: these tests replace app workspace storage. " +
-                "Use a disposable emulator with instrumentation argument disposableDevice=true " +
-                "(optedIn=$optedIn, isEmulator=$isEmulator)."
-        }
+        verifyDisposableDevice()
+        disposableVerified = true
     }
 
     @Before fun launchFreshWorkspace() {
         requireDisposableDevice()
-        store.write(Workspace())
+        // No Activity exists yet: this test owner cannot race the application's store.
+        store.load()
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace()))
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("google-sign-in")
     }
 
-    @After fun closeActivity() { screenshot("end-${testName.methodName}"); scenario.close() }
+    @After fun closeActivity() {
+        if (!disposableVerified || !::scenario.isInitialized) return
+        try { screenshot("end-${testName.methodName}") } finally { scenario.close() }
+    }
 
     private fun waitForTag(tag: String) {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
@@ -80,6 +76,7 @@ class GitHabitFlowTest {
     }
 
     private fun screenshot(name: String) {
+        check(disposableVerified) { "Refusing screenshot writes on an unverified device." }
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         // PixelCopy synchronizes each Compose root with the rendered window before
