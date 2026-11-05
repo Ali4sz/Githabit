@@ -90,3 +90,36 @@ plan disagree, the plan wins. Tests are the executable version of these rules.
   provenance-based cleanup.
 - Synthetic generators exist only in test sources and are used only against guarded,
   disposable installations.
+
+## Domain query integration (Task 3)
+
+The rules above describe the final contract, not a claim that the intermediate v1 UI
+already implements it. The new pure API is ready for migration/command/UI tasks:
+
+- Construct `ProgressAnalytics(workspace, capturedToday)` once per committed history
+  snapshot/date horizon. Reuse it for `daily`, `weekly`, `dateSummary`, `weekSummary`,
+  `todayGroups`, `adherence`, and `commits.activityStreaks`; do not rebuild per graph cell.
+- `TargetProgress` retains actual totals and a capped ratio even on an optional or
+  subsequently paused date. Use `DailyProgress.eligibility`, `assessment`, and
+  `qualifies` to describe schedule credit, **not** the numeric `targetReached` alone.
+  Future saved activity remains inspectable but cannot qualify before its date.
+- `WeeklyProgress.quota` is present only for a stable active full week. Transitional
+  results provide weekly-configured qualifying dates and a separately labeled
+  `endingWeeklyGoal` (the goal effective at the period's end, if still weekly).
+  Earlier daily/weekday configurations keep their own day assessments; they are not
+  pooled into an authoritative weekly quota after a midweek schedule change.
+- `adherence(start, endExclusive)` counts days inside that half-open range, and weeks
+  only when their **entire resolved bounds** fit inside it. Request calendar bounds
+  when displaying a weekly rate. Achieved open periods may count, pending periods
+  do not; later corrections/edits can legitimately change the result. Empty denominators
+  yield null rates, not zero or fabricated success. Never combine day/week rates.
+- `todayGroups` always returns the four ordered groups, with stable workspace order
+  inside them. Only Scheduled and Weekly remaining are obligation/Remaining groups.
+  Hide empty headers in UI without relabeling practice as outstanding work.
+- `WeekCalendar.periodOn` is the only source of period membership. The immutable
+  calendar separates locked `transitions` from replaceable `pending`. `status` provides
+  effective/pending conventions, current fixed bounds, and projected first-full-week
+  start; `advancedTo` retains original activation dates when persisting after reopening.
+- `Workspace.requestWeekStart` is pure. Task 5 must run it inside the serialized,
+  captured-date, verified-write boundary. Task 4 must serialize schedules and the
+  complete calendar losslessly before runtime commands can enable these features.

@@ -87,3 +87,45 @@ completed before `2026-11-05T20:55:28+03:00`. **113 tests per variant, zero
 failures/errors**; lint zero errors/eight existing advisories; both APKs assembled;
 `git diff --check` passed. Log: `/tmp/opencode/task3c-verified-build.log` (temporary).
 No connected tests or personal-workspace writes. Weekly assessment/summaries remain.
+
+## Change 4/4 — weekly assessments and composed queries (2026-11-05)
+
+Source: the commit containing this entry, based on `44552fa`.
+
+- `WeeklyAnalytics.kt` provides stable/pending/achieved/missed/not-applicable and
+  transitional weekly results. Only stable full weeks expose an authoritative quota.
+  Qualifying dates remain distinct, uncapped, and specific to their resolved period.
+- Transitional precedence covers creation, substantive dated changes, and calendar
+  bridges. Redundant versions, cosmetic saves, and fully reverted same-day changes
+  do not create transitions; partial reversions still do.
+- Date/week summaries, separate day/week adherence, and ordered Today groups all
+  reuse the snapshot index and calendar resolver. Weekly practice is optional even
+  after the nominal quota is reached. Day/weekday obligations continue in bridges.
+- Twenty-six weekly tests cover limits, partial/repeated/excess activity, future dates,
+  transitions and reversions, corrections/deletion, all conventions, New Year,
+  chained bridges, clipped/multi-period adherence, grouping, mixed units and empty
+  states. A 20-repo/five-year **unit-only fixture** checks that repeated summaries never
+  re-read input commits; it is not a substitute for Task 13 device profiling/capacity tests.
+
+Read-only domain review found no material calculation defect. It requested added
+multi-period adherence and partial-reversion coverage (included), and identified an
+existing-runtime no-op form dismissal issue to fix in a separate small follow-up.
+
+From `android/`, `./gradlew :app:test :app:lintDebug :app:assembleDebug
+:app:assembleDebugAndroidTest --console=plain --no-daemon` passed (48s), exit 0,
+completed before `2026-11-05T21:09:37+03:00`. **139 tests per variant, zero
+failures/errors**, lint zero errors/eight existing advisories; both APKs assembled;
+`git diff --check` passed. Log: `/tmp/opencode/task3d-verified-build.log` (temporary).
+No connected tests. Schema migration and schedule-aware runtime UI are still future work.
+
+### Pure contract coverage map
+
+| Plan contract | Deterministic test coverage |
+| --- | --- |
+| 1: schedule validation, dated configuration, precision, unit lock | `SchedulesTest`, `ProgressAnalyticsTest`, existing `HabitsTest` |
+| 2: amount/ratio/remainder, day eligibility and optional/paused activity | `ProgressAnalyticsTest`, existing `HabitsTest` |
+| 3: distinct-day quotas, N=1/7, pending/closed/surplus/future, remaining groups | `WeeklyAnalyticsTest` |
+| 4: creation/configuration/status changes, first-day/no-op/reversion, corrections, rollback | `SchedulesTest`, `WeeklyAnalyticsTest` |
+| 5 (pure portion): supplied evaluation date, stored-date identity, local date/boundary arithmetic | `ProgressAnalyticsTest`, `WeekCalendarTest`, `WeeklyAnalyticsTest`; lifecycle/serialized commands belong to Task 5 |
+| 6 (pure portion): numeric vs quota vs activity, separate adherence, date/week/Today summaries, index reuse | `ProgressAnalyticsTest`, `WeeklyAnalyticsTest`; accessible rendering belongs to UI tasks |
+| 8 (pure portion): all 49 pairs, empty guard, pending replacement/cancellation, fixed/chained bridges, original-date activation | `WeekCalendarTest`, `WeeklyAnalyticsTest`; persistence/Settings integration belongs to Tasks 4/5/7 |

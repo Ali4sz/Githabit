@@ -84,6 +84,7 @@ class CommitIndex(commits: List<Commit>) {
  * remain compatibility-only until schedule-aware consumers replace them.
  */
 class ProgressAnalytics(workspace: Workspace, val today: LocalDate) {
+    val calendar: WeekCalendar = workspace.calendar
     val commits = CommitIndex(workspace.commits)
     val habits: List<Habit> = Collections.unmodifiableList(workspace.habits.map {
         it.copy(versions = Collections.unmodifiableList(it.versions.sortedBy { version -> version.date }))
