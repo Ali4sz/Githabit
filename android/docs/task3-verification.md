@@ -34,3 +34,32 @@ Remaining: indexed daily analytics, historical period resolver, weekly assessmen
 summaries. Command-level no-op feedback/overlay dismissal is owned by Task 5; the
 current ViewModel returns early for unchanged snapshots. The legacy fixture inventory,
 device/accessibility/capacity checks, and sample-free artifact gates remain outstanding.
+
+## Change 2/4 — indexed daily progress and activity (2026-11-05)
+
+Source: the commit containing this entry, based on `941682b`.
+
+- `CommitIndex` aggregates amounts/counts per habit/stored date and overall counts
+  without mixing units. Snapshots do not retain caller-owned mutable collections.
+- `ProgressAnalytics` sorts versions once, uses binary configuration lookup, and
+  separates numeric progress from obligation, assessment, and qualifying-day credit.
+- Partial/excess/optional/paused-date activity remains visible. Future records are
+  retained but cannot qualify or extend activity streaks before their saved date.
+- Activity streaks count positive activity, not schedule adherence. Empty history
+  yields zero counts/streaks. Correction/deletion rebuilds affect only the new snapshot.
+- Fourteen tests cover accumulation, rounding, remainder, optional weekdays, weekly
+  daily opportunities, past/today/future states, dated changes, pause/archive, stored
+  date identity, immutable snapshots, mixed units, correction/deletion, leap/year/DST
+  calendar arithmetic, and empty history.
+
+`./gradlew :app:testDebugUnitTest --console=plain --no-daemon` passed (17s).
+Then `./gradlew :app:test :app:lintDebug :app:assembleDebug --console=plain --no-daemon`
+passed (45s), completed before `2026-11-05T20:49:00+03:00`, exit 0. **99 tests per
+variant, zero failures/errors**; debug reused its immediately preceding passing run,
+release ran afresh. Lint: zero errors/eight existing advisories. Debug APK assembled;
+`git diff --check` passed. Logs: `/tmp/opencode/task3b-tests.log` and
+`/tmp/opencode/task3b-verified-build.log` (temporary). No connected tests.
+
+The old `progress`/`dailyScore` UI path is deliberately unchanged; schedule-aware UI
+consumers will share this new index rather than construct one per cell. Calendar
+resolution, weekly assessment, adherence, and composed summaries follow next.
