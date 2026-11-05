@@ -11,7 +11,16 @@ enum class RepoStatus { ACTIVE, PAUSED, ARCHIVED }
 enum class HabitIcon { BOOK, MOVEMENT, CODE, WATER, CALM, JOURNAL }
 enum class HabitColor { GREEN, ORANGE, BLUE, TEAL, PURPLE, PINK }
 
-data class GoalVersion(val date: LocalDate, val target: Double, val status: RepoStatus = RepoStatus.ACTIVE)
+/**
+ * Dated habit configuration: target, status, and schedule effective from [date].
+ * [schedule] defaults to daily for v1 data; format v2 makes it explicit (Task 4).
+ */
+data class GoalVersion(
+    val date: LocalDate,
+    val target: Double,
+    val status: RepoStatus = RepoStatus.ACTIVE,
+    val schedule: HabitSchedule = HabitSchedule.Daily,
+)
 
 data class Habit(
     val id: String = UUID.randomUUID().toString(),
@@ -53,12 +62,15 @@ data class HabitDraft(
     val unit: String,
     val icon: HabitIcon = HabitIcon.BOOK,
     val color: HabitColor = HabitColor.GREEN,
+    val schedule: HabitSchedule = HabitSchedule.Daily,
 ) {
     fun normalized(): HabitDraft {
         require(name.trim().length in 1..48) { "Give your repo a name of 1–48 characters." }
         require(unit.trim().length in 1..20) { "Add a unit, like pages or minutes (up to 20 characters)." }
         require(description.trim().length <= 160) { "Keep the description within 160 characters." }
-        return copy(name = name.trim(), unit = unit.trim(), description = description.trim(), target = positive(target))
+        val schedule = schedule.validated()
+        return copy(name = name.trim(), unit = unit.trim(), description = description.trim(),
+            target = positive(target), schedule = schedule)
     }
 }
 
@@ -118,7 +130,7 @@ fun Workspace.createHabit(draft: HabitDraft, today: LocalDate, id: String = UUID
     val fields = draft.normalized()
     require(habits.none { it.id == id }) { "This repo already exists." }
     val habit = Habit(id, fields.name, fields.description, fields.unit, fields.icon, fields.color,
-        today, listOf(GoalVersion(today, fields.target)))
+        today, listOf(GoalVersion(today, fields.target, schedule = fields.schedule)))
     return copy(habits = habits + habit)
 }
 
@@ -129,17 +141,33 @@ fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Worksp
         "Units stay fixed after your first commit. Create a new repo for a different unit."
     }
     val version = requireNotNull(habit.versionOn(today))
+    // A redundant save with no substantive change adds no configuration version (contract 4).
+    val configChanged = version.target != fields.target || version.schedule != fields.schedule
+    if (configChanged) habit.requireConfigurationDate(today)
+    if (!configChanged && fields.name == habit.name && fields.description == habit.description &&
+        fields.unit == habit.unit && fields.icon == habit.icon && fields.color == habit.color) return this
+    // Presentational edits never create versions; only target/schedule changes do.
+    val versions = if (configChanged) habit.versions.filter { it.date != today } +
+        version.copy(date = today, target = fields.target, schedule = fields.schedule) else habit.versions
     val updated = habit.copy(name = fields.name, description = fields.description, unit = fields.unit,
-        icon = fields.icon, color = fields.color,
-        versions = habit.versions.filter { it.date != today } + version.copy(date = today, target = fields.target))
+        icon = fields.icon, color = fields.color, versions = versions)
     return copy(habits = habits.map { if (it.id == id) updated else it })
 }
 
 fun Workspace.changeStatus(id: String, status: RepoStatus, today: LocalDate): Workspace {
     val habit = habits.first { it.id == id }
     val version = requireNotNull(habit.versionOn(today))
+    // Same-day updates preserve target and schedule; a redundant save changes nothing.
+    if (version.status == status) return this
+    habit.requireConfigurationDate(today)
     val updated = habit.copy(versions = habit.versions.filter { it.date != today } + version.copy(date = today, status = status))
     return copy(habits = habits.map { if (it.id == id) updated else it })
+}
+
+private fun Habit.requireConfigurationDate(today: LocalDate) {
+    require(versions.none { it.date > today }) {
+        "This repo has a newer dated configuration. Check your device date before changing its goal or status."
+    }
 }
 
 fun Workspace.addCommit(
