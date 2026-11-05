@@ -38,3 +38,38 @@ new-input commands: v1 permits commits on dates subsequently paused/archived and
 dates preceding creation. Saved local dates, timestamps, amounts and strings remain
 authoritative. Unsorted legacy versions may be sorted for v2 representation without
 deleting any dated configuration. Exact original bytes must also be preserved.
+
+## Change 2 — bounded strict JSON foundation (2026-11-05)
+
+Source: the commit containing this entry, based on `d311b3e`. Runtime codec/startup is
+still unchanged until the coordinated cutover; these helpers do not themselves migrate.
+
+- Centralized 32 MiB, 1,000-habit, 100,000-commit/configuration, 128-ID and depth-8
+  constants, typed JSON failures, bounded stream reads and strict UTF-8 decoding.
+- Added a platform-independent streaming reader retaining number lexemes for subsequent
+  schema validation, without constructing a second document tree. It rejects duplicate keys (including escaped equivalents), trailing
+  content, coercive/non-JSON literals, invalid number grammar, malformed escapes,
+  lone surrogates, excessive depth and arrays exceeding supported collection capacity.
+  Internal structural guards also limit an object to 16 fields (the schema needs at
+  most eight) and the document to 2,109,032 values (derived from maximum supported
+  configurations, commits and habits). They bound malformed-document work before
+  post-parse validation and do not reduce the supported schema's record counts.
+- Added incremental escaped-UTF-8 output accounting before buffer growth. No new
+  runtime dependency or toolchain change. Schema validators and storage integration
+  will enforce the remaining collection/record limits at cutover.
+- Thirteen tests include actual below/at/above 32 MiB input, actual output limit,
+  escaped/multibyte output, 100,000 array entries, depth 7/8/9, malformed UTF-8,
+  duplicate keys, Unicode and primitive round trips. These are JVM checks, not a
+  claim of minimum-device memory certification (Task 13). Nested aggregate arrays and
+  wide objects have explicit resource-rejection regressions.
+
+The initial tree-based attempt passed 158 tests but failed independent review: a
+14,000,163-byte nested-array document exhausted a 256 MiB heap. It was not committed
+or activated. The implementation was replaced with streaming callbacks and aggregate
+guards; that initial passing suite is not evidence of resource safety.
+
+From `android/`, `./gradlew :app:test :app:lintDebug :app:assembleDebug
+--console=plain --no-daemon` passed (52s), exit 0, completed before
+`2026-11-05T22:43:16+03:00`: **160 tests per variant, zero failures/errors**;
+lint zero errors/eight existing advisories; debug APK assembled; `git diff --check`
+passed. Log: `/tmp/opencode/task4b-streaming-verified.log` (temporary). No connected tests.
