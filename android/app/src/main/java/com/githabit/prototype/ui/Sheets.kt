@@ -58,6 +58,7 @@ fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
 @Composable
 private fun RepoForm(vm: GitHabitViewModel, id: String?) {
     val habit = vm.workspace.habits.find { it.id == id }
+    var intendedDate by rememberSaveable { mutableStateOf(vm.today.toString()) }
     var name by rememberSaveable { mutableStateOf(habit?.name ?: "") }
     var description by rememberSaveable { mutableStateOf(habit?.description ?: "") }
     var target by rememberSaveable { mutableStateOf(habit?.versionOn(vm.today)?.target?.let(::editableAmount) ?: "20") }
@@ -68,6 +69,8 @@ private fun RepoForm(vm: GitHabitViewModel, id: String?) {
     val unitLocked = vm.workspace.commits.any { it.habitId == id }
     Text(if (id == null) "A new daily intention" else "Refine your repo", style = MaterialTheme.typography.headlineMedium)
     Subtitle("Start small. Make room for something that matters.")
+    Subtitle("Changes apply on ${dateLabel(LocalDate.parse(intendedDate))}.")
+    if (id != null && habit == null) Text("This repo is no longer available. Close and reopen the form.", color = MaterialTheme.colorScheme.error)
     OutlinedTextField(name, { if (it.length <= 48) name = it }, modifier = Modifier.fillMaxWidth().testTag("repo-name"),
         label = { Text("Repo name") }, placeholder = { Text("Read every day") }, singleLine = true)
     OutlinedTextField(description, { if (it.length <= 160) description = it }, modifier = Modifier.fillMaxWidth(),
@@ -103,18 +106,27 @@ private fun RepoForm(vm: GitHabitViewModel, id: String?) {
                 habit?.versionOn(vm.today)?.schedule ?: HabitSchedule.Daily)
             draft.normalized() // Validate here; retain untouched legacy strings for the command.
             error = null
-            vm.saveHabit(id, draft)
+             vm.saveHabit(id, draft, LocalDate.parse(intendedDate)) { revised ->
+                 intendedDate = revised.toString()
+                 error = "The local date changed to ${dateLabel(revised)}. Review your draft and save again."
+             }
         } catch (invalid: IllegalArgumentException) { error = invalid.message }
-    }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-repo")) {
+    }, enabled = !vm.busy && (id == null || habit != null), modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-repo")) {
         Text(if (id == null) "Create repo" else "Save changes")
     }
 }
 
 @Composable
 private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
-    val habit = vm.workspace.habits.find { it.id == overlay.habitId } ?: return
+    val habit = vm.workspace.habits.find { it.id == overlay.habitId }
+    if (habit == null) {
+        Text("This repo is no longer available. Close and reopen the form.", color = MaterialTheme.colorScheme.error)
+        return
+    }
     val commit = vm.workspace.commits.find { it.id == overlay.commitId }
-    val day = commit?.date ?: vm.today
+    val correcting = overlay.commitId != null
+    var intendedDate by rememberSaveable { mutableStateOf((commit?.date ?: vm.today).toString()) }
+    val day = LocalDate.parse(intendedDate)
     val progress = vm.workspace.progress(habit, day)
     var amount by rememberSaveable { mutableStateOf(commit?.amount?.let(::editableAmount) ?: "") }
     var note by rememberSaveable { mutableStateOf(commit?.note ?: "") }
@@ -123,25 +135,33 @@ private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         HabitGlyph(habit, 48)
         Column(Modifier.weight(1f)) {
-            Text(if (commit == null) "Make a small commit" else "Correct a commit", style = MaterialTheme.typography.titleLarge)
+            Text(if (!correcting) "Make a small commit" else "Correct a commit", style = MaterialTheme.typography.titleLarge)
             Subtitle(habit.name)
         }
     }
     Subtitle("${dateLabel(day)} · ${formatAmount(progress.total)} / ${formatAmount(progress.target)} ${habit.unit}")
+    if (correcting && commit == null) Text("This commit is no longer available. Your draft was not saved as new progress.", color = MaterialTheme.colorScheme.error)
     OutlinedTextField(amount, { amount = it }, label = { Text("Amount (${habit.unit})") }, singleLine = true,
         modifier = Modifier.fillMaxWidth().testTag("commit-amount"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         supportingText = { Text("Partial progress counts. Decimals are welcome.") })
-    if (commit == null && progress.remaining > 0) AssistChip(onClick = { amount = editableAmount(progress.remaining) },
+    if (!correcting && progress.remaining > 0) AssistChip(onClick = { amount = editableAmount(progress.remaining) },
         label = { Text("Remaining: ${formatAmount(progress.remaining)} ${habit.unit}") }, leadingIcon = { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) })
     OutlinedTextField(note, { if (it.length <= 200) note = it }, label = { Text("Commit message (optional)") },
         placeholder = { Text("A quiet chapter with my morning coffee.") }, modifier = Modifier.fillMaxWidth().testTag("commit-note"),
         minLines = 2, maxLines = 4, supportingText = { Text("${note.length} / 200") })
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     Button(onClick = {
-        try { val value = parseAmount(amount); error = null; vm.saveCommit(habit.id, commit?.id, value, note) }
+        try {
+            val value = parseAmount(amount)
+            error = null
+            vm.saveCommit(habit.id, overlay.commitId, value, note, day) { revised ->
+                intendedDate = revised.toString()
+                error = "The local date changed to ${dateLabel(revised)}. Review your draft and submit again."
+            }
+        }
         catch (invalid: IllegalArgumentException) { error = invalid.message }
-    }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-commit")) {
-        Icon(Icons.Outlined.Commit, null); Spacer(Modifier.width(8.dp)); Text(if (commit == null) "Commit progress" else "Save correction")
+    }, enabled = !vm.busy && (!correcting || commit != null), modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-commit")) {
+        Icon(Icons.Outlined.Commit, null); Spacer(Modifier.width(8.dp)); Text(if (!correcting) "Commit progress" else "Save correction")
     }
     if (commit != null) {
         TextButton(onClick = { removeConfirmation = true }, enabled = !vm.busy,
@@ -193,7 +213,7 @@ private fun DayDetails(vm: GitHabitViewModel, overlay: Overlay.Day) {
     val commits = state.commits.filter { it.date == day && (overlay.habitId == null || it.habitId == overlay.habitId) }
     if (commits.isEmpty()) Subtitle("No commits on this day. There’s always another small beginning.")
     commits.sortedByDescending { it.timestamp }.forEach { commit ->
-        CommitRow(state, commit) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
+        CommitRow(state, commit, vm.zone) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
     }
 }
 

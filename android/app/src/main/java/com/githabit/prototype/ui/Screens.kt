@@ -243,7 +243,7 @@ fun TodayScreen(vm: GitHabitViewModel) {
             }
             if (state.commits.isEmpty()) Subtitle("Your first commit is the start of something good.")
             state.commits.sortedByDescending { it.timestamp }.take(3).forEach { commit ->
-                CommitRow(state, commit) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
+                CommitRow(state, commit, vm.zone) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
             }
         }
         Footer()
@@ -339,7 +339,7 @@ fun DetailScreen(vm: GitHabitViewModel) {
         StatsRow(listOf(Triple("Activity\nstreak", "${state.activityStreak(vm.today, habit.id)}", "days"),
             Triple("Longest\nstreak", "${state.longestStreak(vm.today, habit.id)}", "days"),
             Triple("Total\ncommits", "${state.commits.count { it.habitId == habit.id }}", "")))
-        HistoryList(state, state.commits.filter { it.habitId == habit.id }, limit,
+        HistoryList(state, state.commits.filter { it.habitId == habit.id }, limit, vm.zone,
             onMore = { limit += 30 }, onEdit = { vm.overlay = Overlay.LogForm(it.habitId, it.id) })
     }
     if (archiveConfirmation) ConfirmDialog("Close this chapter?", "Archive this repo without removing any commits. You can resume it at any time.",
@@ -347,14 +347,14 @@ fun DetailScreen(vm: GitHabitViewModel) {
 }
 
 @Composable
-internal fun CommitRow(state: Workspace, commit: Commit, onEdit: () -> Unit) {
+internal fun CommitRow(state: Workspace, commit: Commit, zone: ZoneId, onEdit: () -> Unit) {
     val habit = state.habits.firstOrNull { it.id == commit.habitId } ?: return
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         HabitGlyph(habit, 32)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(habit.name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             if (commit.note.isNotBlank()) Subtitle(commit.note)
-            Text("${dateLabel(commit.date)} · ${commit.timestamp.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm a"))}",
+            Text("${dateLabel(commit.date)} · ${commit.timestamp.atZone(zone).format(DateTimeFormatter.ofPattern("h:mm a"))}",
                 fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -368,13 +368,13 @@ internal fun CommitRow(state: Workspace, commit: Commit, onEdit: () -> Unit) {
 }
 
 @Composable
-private fun HistoryList(state: Workspace, commits: List<Commit>, limit: Int, onMore: () -> Unit, onEdit: (Commit) -> Unit) {
+private fun HistoryList(state: Workspace, commits: List<Commit>, limit: Int, zone: ZoneId, onMore: () -> Unit, onEdit: (Commit) -> Unit) {
     Panel {
         SectionHeading("Commit history") { StatusBadge("${commits.size} commits") }
         if (commits.isEmpty()) Subtitle("No commits yet. Your story is still being written.")
         commits.sortedByDescending { it.timestamp }.take(limit).forEachIndexed { index, commit ->
             if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            CommitRow(state, commit) { onEdit(commit) }
+            CommitRow(state, commit, zone) { onEdit(commit) }
         }
         if (commits.size > limit) TextButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Show more commits") }
     }
@@ -389,7 +389,7 @@ fun ActivityScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
             Subtitle("A record of the little things that add up.")
             OutlinedButton(onClick = onExport) { Icon(Icons.Outlined.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Export workspace") }
         }
-        HistoryList(vm.workspace, vm.workspace.commits, limit, { limit += 30 }) { vm.overlay = Overlay.LogForm(it.habitId, it.id) }
+        HistoryList(vm.workspace, vm.workspace.commits, limit, vm.zone, { limit += 30 }) { vm.overlay = Overlay.LogForm(it.habitId, it.id) }
     }
 }
 
