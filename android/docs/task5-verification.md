@@ -66,3 +66,12 @@ Review-driven tests also establish that a pre-boundary cancellation may finish a
 - In-memory observation/Undo evidence does not survive process death after an unverified storage failure. Restart resolves retained pending boundaries by their stored dates and the current clock; no persistent multi-level Undo or separate persistent clock high-water record was introduced. Verified calendar transitions do survive restart and clock rollback.
 - Capacity limits remain provisional. Canonical replacement fingerprints add bounded serialization work on IO; device memory certification remains Task 13's gate, not a claim based on JVM success.
 - Runtime sample generation/demo entry, full theme/calendar Settings, schedule controls, and confirmed document restore remain later tasks. These APKs are sample-bearing intermediate verification artifacts, **not a real-use handoff or fixture-free delivery**. No installed workspace was inspected, migrated, reset, or populated during this work.
+
+## Subsequent authorized phone verification
+
+After this report, the owner explicitly authorized installation and GitHabit-only
+data resets on a physical phone. The [separate phone report](phone-verification.md)
+records the updated test-only guard, new instrumentation APK identity, 22 passing
+device tests (including both stale-form journeys), and verified marker revocation.
+The compiled-only and no-device statements above describe the earlier checkpoint,
+not that subsequent run. Production APK identity is unchanged.

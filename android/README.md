@@ -2,6 +2,12 @@
 
 A standalone Android prototype built with **Kotlin, Jetpack Compose, and Material 3**. GitHub-inspired charcoal surfaces, green contribution grids, and repo/commit language turn daily habits into a personal changelog. This is a native app, not a WebView; the [web prototype](../README.md) is unchanged.
 
+**Current checkpoint (2026-11-06):** Task 5 command/storage work is verified, including
+[22 tests on an explicitly authorized physical phone](docs/phone-verification.md).
+This remains a sample-bearing intermediate build, not the real-data-only personal-use
+handoff. [Task 5 evidence](docs/task5-verification.md) and the
+[build plan](../.plans/githabit-android-build-plan.md) describe the completed work and remaining gates.
+
 ## Try it
 
 - **Installable debug APK:** [app-debug.apk](app/build/outputs/apk/debug/app-debug.apk) (~18 MB; Android 8.0/API 26 or newer).
@@ -93,17 +99,26 @@ Package ID: `com.githabit.prototype`. The APK is a generated, ignored build arti
 
 ## Verification
 
-**Use a disposable emulator for instrumented tests:** they reset/replace the app's workspace. Connected Gradle tests can also remove the test installation and its app-external screenshots.
+**Prefer an explicitly provisioned disposable emulator for instrumented tests:** they
+reset/replace GitHabit's workspace. A separate test APK does not isolate app data.
+The guard requires exact package/device identity, explicit opt-in, and a matching
+temporary marker before destructive setup. See the [emulator procedure](docs/verification.md#disposable-device-verification).
+
+Physical-phone testing additionally requires the owner's explicit GitHabit-only reset
+consent, an exact serial match, and **direct serial-selected instrumentation**. Do not
+use Gradle connected tests on a personal phone: `animationsDisabled = true` can change
+device-wide settings. Physical runs suppress all screenshot capture, including failures
+and teardown. Follow the [phone procedure and cleanup requirements](docs/phone-verification.md#safe-physical-phone-procedure).
 
 ```bash
-# No device required: unit tests for both variants, lint, and debug APK.
-./gradlew :app:test :app:lintDebug :app:assembleDebug --no-daemon
-
-# Requires a running emulator or connected device.
-./gradlew :app:connectedDebugAndroidTest --no-daemon
+# No device required: unit tests for both variants, lint, and both APKs.
+./gradlew :app:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
 ```
 
-Verified on **2026-11-02**, using the `GitHabit_API_36` Android 16 emulator (Google APIs, x86_64):
+### Historical prototype results (2026-11-02)
+
+These results used the `GitHabit_API_36` Android 16 emulator (Google APIs, x86_64)
+and do not verify the current source:
 
 | Check | Result |
 | --- | --- |
@@ -118,7 +133,11 @@ Verified on **2026-11-02**, using the `GitHabit_API_36` Android 16 emulator (Goo
 
 The UI tests cover onboarding, repo creation, fractional logging, remaining-only completion, Undo, correction/deletion, pause/archive/resume, historical targets, navigation, theme persistence, activity recreation, sign-out/reset, and credential non-persistence. Compact stats stack vertically on narrow screens or with larger fonts.
 
-Generated reports live under `app/build/reports/`; machine-readable unit results are under `app/build/test-results/`, and connected results under `app/build/outputs/androidTest-results/`. Physical devices, older Android releases, landscape/tablet layouts, and a full accessibility audit have **not** been verified.
+Generated reports live under `app/build/reports/`; machine-readable unit results are under
+`app/build/test-results/`, and Gradle connected results under `app/build/outputs/androidTest-results/`.
+Direct phone instrumentation instead uses explicitly captured runner logs. The later
+[phone results](docs/phone-verification.md) cover one CPH2749/API 37 configuration only;
+older Android releases, landscape/tablet layouts, and a full accessibility audit remain unverified.
 
 ## Implementation map
 

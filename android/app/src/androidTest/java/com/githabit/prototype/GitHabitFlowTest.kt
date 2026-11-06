@@ -11,6 +11,7 @@ import com.githabit.prototype.data.WorkspaceJson
 import com.githabit.prototype.data.WriteOutcome
 import com.githabit.prototype.domain.*
 import com.githabit.prototype.fixtures.verifyDisposableDevice
+import com.githabit.prototype.fixtures.AuthorizedTestTarget
 import java.time.LocalDate
 import org.junit.After
 import org.junit.Assert.*
@@ -24,9 +25,10 @@ class GitHabitFlowTest {
     @get:Rule val compose = createEmptyComposeRule()
     @get:Rule val testName = TestName()
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val store = WorkspaceStore(context)
+    private lateinit var store: WorkspaceStore
     private lateinit var scenario: ActivityScenario<MainActivity>
     private var disposableVerified = false
+    private var screenshotsAllowed = false
 
     // AtomicFile.openRead performs recovery and may delete an in-flight .new file.
     // Observe only the atomically renamed base file while the app is writing.
@@ -34,18 +36,19 @@ class GitHabitFlowTest {
 
     /**
      * Destructive guard (fail-closed): these tests replace the target app's workspace, and a
-     * separate test APK does not isolate personal data. They may only run on an emulator with
-     * explicit opt-in, exact package/AVD match and a provisioned one-run device marker.
+     * separate test APK does not isolate personal data. Require exact device/package binding,
+     * explicit reset consent and a provisioned session marker. Physical phones cannot capture screenshots.
      * See docs/verification.md before running; a generic emulator opt-in is insufficient.
      * Any missing prerequisite aborts BEFORE the first target-context write.
      */
     private fun requireDisposableDevice() {
-        verifyDisposableDevice()
+        screenshotsAllowed = verifyDisposableDevice() == AuthorizedTestTarget.DISPOSABLE_EMULATOR
         disposableVerified = true
     }
 
     @Before fun launchFreshWorkspace() {
         requireDisposableDevice()
+        store = WorkspaceStore(context)
         // No Activity exists yet: this test owner cannot race the application's store.
         store.load()
         // These existing screenshot/theme journeys explicitly start dark; the app's
@@ -79,6 +82,9 @@ class GitHabitFlowTest {
 
     private fun screenshot(name: String) {
         check(disposableVerified) { "Refusing screenshot writes on an unverified device." }
+        // Never capture unrelated notifications, system overlays or personal phone content.
+        // Return before any capture call, including failure and teardown screenshots.
+        if (!screenshotsAllowed) return
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         // PixelCopy synchronizes each Compose root with the rendered window before
