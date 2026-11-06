@@ -412,6 +412,8 @@ class GitHabitViewModelLoadTest {
     @Test fun tickerUsesControlledTimeAndStopsWhenModelIsCleared() = runTest(testDispatcher) {
         val vm = model(FakeAccessForViewModel())
         advanceUntilIdle()
+        vm.startForegroundRefresh()
+        runCurrent()
         clock.date = clock.date.plusDays(1)
         advanceTimeBy(30_000)
         runCurrent()

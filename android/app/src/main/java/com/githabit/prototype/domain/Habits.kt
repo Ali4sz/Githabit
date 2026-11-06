@@ -136,7 +136,7 @@ fun Workspace.createHabit(draft: HabitDraft, today: LocalDate, id: String = UUID
 }
 
 fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Workspace {
-    val habit = habits.first { it.id == id }
+    val habit = requireNotNull(habits.firstOrNull { it.id == id }) { "This repo could not be found. Reopen the form." }
     val fields = draft.normalized().let { normalized -> normalized.copy(
         name = if (draft.name == habit.name) habit.name else normalized.name,
         description = if (draft.description == habit.description) habit.description else normalized.description,
@@ -147,7 +147,7 @@ fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Worksp
     require(fields.unit == habit.unit || commits.none { it.habitId == id }) {
         "Units stay fixed after your first commit. Create a new repo for a different unit."
     }
-    val version = requireNotNull(habit.versionOn(today))
+    val version = requireNotNull(habit.versionOn(today)) { "This repo did not exist on $today. Check your device date." }
     // A redundant save with no substantive change adds no configuration version (contract 4).
     val configChanged = version.target != fields.target || version.schedule != fields.schedule
     if (configChanged) habit.requireConfigurationDate(today)
@@ -162,8 +162,8 @@ fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Worksp
 }
 
 fun Workspace.changeStatus(id: String, status: RepoStatus, today: LocalDate): Workspace {
-    val habit = habits.first { it.id == id }
-    val version = requireNotNull(habit.versionOn(today))
+    val habit = requireNotNull(habits.firstOrNull { it.id == id }) { "This repo could not be found." }
+    val version = requireNotNull(habit.versionOn(today)) { "This repo did not exist on $today. Check your device date." }
     // Same-day updates preserve target and schedule; a redundant save changes nothing.
     if (version.status == status) return this
     habit.requireConfigurationDate(today)
@@ -189,11 +189,13 @@ fun Workspace.addCommit(
     return copy(commits = commits + Commit(id, habitId, positive(amount), day, timestamp, note.trim()))
 }
 
-fun Workspace.completeGoal(habitId: String, day: LocalDate, id: String = UUID.randomUUID().toString()): Workspace {
-    val habit = habits.first { it.id == habitId }
+fun Workspace.completeGoal(
+    habitId: String, day: LocalDate, id: String = UUID.randomUUID().toString(), timestamp: Instant = Instant.now(),
+): Workspace {
+    val habit = requireNotNull(habits.firstOrNull { it.id == habitId }) { "This repo could not be found." }
     val value = progress(habit, day)
     if (value.remaining == 0.0) return this
-    return addCommit(habitId, value.remaining, day, "Daily goal completed", id)
+    return addCommit(habitId, value.remaining, day, "Daily goal completed", id, timestamp)
 }
 
 fun Workspace.editCommit(id: String, amount: Double, note: String): Workspace {

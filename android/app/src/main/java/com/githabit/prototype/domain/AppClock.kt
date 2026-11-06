@@ -15,6 +15,16 @@ interface AppClock {
     fun zone(): ZoneId
 }
 
+/** One observation: the local date is derived from this instant in this zone. */
+data class CommandTime(val instant: Instant, val zone: ZoneId) {
+    val date: LocalDate = instant.atZone(zone).toLocalDate()
+}
+
+fun AppClock.capture(): CommandTime {
+    val zone = zone()
+    return CommandTime(now(), zone)
+}
+
 class SystemAppClock(private val clock: Clock = Clock.systemUTC()) : AppClock {
     override fun today(): LocalDate = now().atZone(zone()).toLocalDate()
     override fun now(): Instant = clock.instant()
