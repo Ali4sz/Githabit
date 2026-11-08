@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.GitHabit" parent="Theme.GitHabit.Base">
+        <item name="android:windowLightNavigationBar">@bool/startup_light_system_bars</item>
+        <item name="android:navigationBarColor">@color/startup_navigation</item>
+    </style>
+</resources>

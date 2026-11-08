@@ -1,6 +1,5 @@
 package com.githabit.prototype.ui
 
-import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,14 +13,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import com.githabit.prototype.Destination
 import com.githabit.prototype.GitHabitViewModel
 import com.githabit.prototype.WorkspaceLoad
-import com.githabit.prototype.domain.ThemePreference
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,20 +27,8 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     // save may hide ordinary UI without authorizing disposal of the user's draft.
     val savedState = key(vm.workspaceSession) { rememberSaveableStateHolder() }
     val sheetState = key(vm.workspaceSession, vm.overlay) { rememberSaveableStateHolder() }
-    val view = LocalView.current
-    val dark = when (vm.workspace.theme) {
-        ThemePreference.SYSTEM -> isSystemInDarkTheme()
-        ThemePreference.LIGHT -> false
-        ThemePreference.DARK -> true
-    }
-    SideEffect {
-        (view.context as? Activity)?.window?.let { window ->
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !dark
-                isAppearanceLightNavigationBars = !dark
-            }
-        }
-    }
+    val dark = vm.workspace.theme.isDark(isSystemInDarkTheme())
+    GitHabitSystemBars(dark)
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.notices.collect { notice ->

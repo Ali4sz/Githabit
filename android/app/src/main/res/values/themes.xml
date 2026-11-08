@@ -1,10 +1,16 @@
 <resources>
-    <style name="Theme.GitHabit" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Theme.GitHabit.Base" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F7F9F8</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowBackground">#0D1117</item>
-        <item name="android:colorAccent">#8BE5AC</item>
+        <item name="android:windowBackground">#F7F9F8</item>
+        <item name="android:colorBackground">#F7F9F8</item>
+        <item name="android:navigationBarColor">#131920</item>
+        <item name="android:colorAccent">#256B3E</item>
     </style>
+    <style name="Theme.GitHabit" parent="Theme.GitHabit.Base" />
+    <bool name="startup_light_system_bars">true</bool>
+    <color name="startup_navigation">#FFFFFF</color>
     <color name="launcher_background">#193426</color>
 </resources>
