@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">GitHabit</string>
+    <string name="welcome_title">Your habits, one commit at a time.</string>
+    <string name="welcome_description">A repo is a habit you choose. A commit records progress toward its target, including partial progress.</string>
+    <string name="welcome_local">Start with an empty workspace on this device. No account or connection is needed. Your optional profile and preferences live in Settings.</string>
+    <string name="create_first_repo">Create first repo</string>
+    <string name="open_empty_workspace">Open empty workspace</string>
+    <string name="reset_workspace">Reset workspace</string>
+    <string name="local_storage_notice">GitHabit keeps your workspace on this device, without accounts or cloud sync. Uninstalling erases local data. Exports are plaintext and a chosen document provider may sync them independently. Import is not yet available in this build.</string>
+    <string name="local_footer">GitHabit · Local workspace</string>
 </resources>

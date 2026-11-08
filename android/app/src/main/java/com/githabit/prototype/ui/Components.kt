@@ -180,7 +180,7 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                 Text(habit.name, style = MaterialTheme.typography.titleMedium)
-                Subtitle(habit.description.ifEmpty { "A small step toward your better everyday." })
+                if (habit.description.isNotEmpty()) Subtitle(habit.description)
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {

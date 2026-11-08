@@ -4,11 +4,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
-import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,17 +16,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.githabit.prototype.*
+import com.githabit.prototype.R
 import com.githabit.prototype.data.UnreadableKind
 import com.githabit.prototype.domain.*
 import java.time.LocalDate
@@ -90,94 +87,23 @@ fun RecoveryScreen(state: WorkspaceLoad.Recovery, canSaveCopy: Boolean, busy: Bo
 }
 
 @Composable
-fun SignInScreen(vm: GitHabitViewModel) {
-    val dark = LocalDarkTheme.current
-    // Deliberately not rememberSaveable: credentials must never enter saved state or storage.
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    PageColumn(Modifier.imePadding()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Brand(); Spacer(Modifier.weight(1f))
-            IconButton(onClick = { vm.setTheme(!dark) }) {
-                Icon(if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "Switch theme")
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        Eyebrow("A LITTLE PROGRESS. EVERY SINGLE DAY.")
-        Text(buildAnnotatedString {
-            append("Small commits.\n")
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("Meaningful change.") }
-        }, style = MaterialTheme.typography.displaySmall)
-        Subtitle("Your life is your most important project. Build better habits, one contribution at a time.")
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Your next chapter starts here.", style = MaterialTheme.typography.titleLarge)
-            OutlinedButton(onClick = { vm.signIn() }, enabled = !vm.busy,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("google-sign-in")) {
-                Text("G", fontSize = 20.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.width(12.dp))
-                Text("Continue with Google"); Spacer(Modifier.width(10.dp)); StatusBadge("DEMO")
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-                Text("or try the email flow", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-            }
-            OutlinedTextField(email, { email = it }, label = { Text("Demo email") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("demo-email"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-            OutlinedTextField(password, { password = it }, label = { Text("Demo password") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("demo-password"), visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), supportingText = { Text("Use made-up details, never your real password.") })
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = {
-                if (!email.contains('@') || password.length < 6) error = "Use a demo email and at least 6 made-up password characters."
-                else { email = ""; password = ""; error = null; vm.signIn() }
-            }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("email-sign-in")) {
-                Text("Continue"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
-            }
-            Panel {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Outlined.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Subtitle("Local prototype, not real sign-in. Credentials are never saved or sent. All demo users share this device’s workspace.")
-                }
-            }
-            TextButton(onClick = { vm.explore() }, enabled = !vm.busy,
-                modifier = Modifier.fillMaxWidth().testTag("explore-demo")) {
-                Text("Explore with sample habits"); Spacer(Modifier.width(7.dp)); Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(17.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun OnboardingScreen(vm: GitHabitViewModel) {
-    val titles = listOf("Create your first repo.", "Make a small commit.", "Watch consistency grow.")
-    val descriptions = listOf(
-        "Every habit is a little project. Give yours a name and a daily goal—like reading 20 pages or moving for 30 minutes.",
-        "Log a little progress throughout your day, or complete your remaining goal with one tap. Every step forward counts.",
-        "Your heatmap turns greener as you get closer to your goals. Build a history of showing up, without chasing perfection.")
-    val step = vm.onboardingStep
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
-        verticalArrangement = Arrangement.spacedBy(25.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
+fun WelcomeScreen(vm: GitHabitViewModel) {
+    PageColumn(Modifier.testTag("local-welcome")) {
         Brand()
-        Box(Modifier.fillMaxWidth().height(185.dp).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.primaryContainer), Alignment.Center) {
-            Icon(when (step) { 0 -> Icons.Outlined.FolderOpen; 1 -> Icons.Outlined.Commit; else -> Icons.Outlined.GridView },
-                null, Modifier.size(76.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(stringResource(R.string.welcome_title), style = MaterialTheme.typography.headlineMedium)
+        Subtitle(stringResource(R.string.welcome_description))
+        Subtitle(stringResource(R.string.welcome_local))
+        Button(onClick = { vm.finishWelcome() }, enabled = !vm.busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch)
+                .focusOutline(CircleShape, MaterialTheme.colorScheme.onPrimary).testTag("create-first-repo")) {
+            Icon(Icons.Outlined.Add, null)
+            Spacer(Modifier.width(GitHabitSpace.small))
+            Text(stringResource(R.string.create_first_repo))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            repeat(3) { Box(Modifier.width(22.dp).height(4.dp).clip(CircleShape)
-                .background(if (step == it) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) }
-        }
-        Text(titles[step], style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-        Text(descriptions[step], style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (step < 2) {
-            Button(onClick = { vm.onboardingStep++ }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Continue") }
-            TextButton(onClick = { vm.onboardingStep = 2 }) { Text("Skip introduction") }
-        } else {
-            Button(onClick = { vm.startEmpty() }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
-                Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(5.dp)); Text("Create my first repo")
-            }
-            TextButton(onClick = { vm.explore() }, enabled = !vm.busy) { Text("Try it with sample habits first") }
+        TextButton(onClick = { vm.finishWelcome(createRepo = false) }, enabled = !vm.busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch)
+                .focusOutline(CircleShape).testTag("open-empty-workspace")) {
+            Text(stringResource(R.string.open_empty_workspace))
         }
     }
 }
@@ -493,13 +419,11 @@ fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsAction("Activity log", "Review or correct your contributions.", Icons.Outlined.History) { vm.navigate(Destination.ACTIVITY) }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SettingsAction("Sign out of the demo", "Local data stays on this device.", Icons.AutoMirrored.Outlined.Logout) { vm.signOut() }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             TextButton(onClick = { resetConfirmation = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("Reset this prototype")
+                Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.reset_workspace))
             }
         }
-        Subtitle("GitHabit is a native design prototype. Sign-in is simulated. There is no cloud sync, real account, or background notification service. Data is stored only on this device; uninstalling erases it. JSON export does not include an import feature.")
+        Subtitle(stringResource(R.string.local_storage_notice))
         Footer()
     }
     if (resetConfirmation) ConfirmDialog("Start with a clean slate?", "This removes all local repos, commits, and preferences. Export a copy first if you want to keep it.",
@@ -521,7 +445,7 @@ private fun SettingsAction(title: String, detail: String, icon: androidx.compose
 private fun Footer() {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Text("Made of small, everyday commits.  ·  LOCAL DEMO", fontFamily = FontFamily.Monospace, fontSize = 9.sp,
+        Text(stringResource(R.string.local_footer), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

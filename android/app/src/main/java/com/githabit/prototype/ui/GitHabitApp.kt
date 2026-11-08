@@ -51,20 +51,16 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     }
     val load = vm.load
     val recovery = load as? WorkspaceLoad.Recovery
-    val localHistory = vm.workspace.onboarded || vm.workspace.habits.isNotEmpty() || vm.workspace.commits.isNotEmpty()
-    val authenticated = load is WorkspaceLoad.Ready && vm.entryOpen && localHistory
+    val workspaceOpen = load is WorkspaceLoad.Ready && !vm.needsWelcome
     val mainTabs = listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)
-    BackHandler(enabled = vm.overlay == null && authenticated && vm.destination != Destination.TODAY) { vm.back() }
-    BackHandler(enabled = load is WorkspaceLoad.Ready && vm.entryOpen && !localHistory) {
-        if (vm.onboardingStep > 0) vm.onboardingStep-- else vm.signOut()
-    }
+    BackHandler(enabled = vm.overlay == null && workspaceOpen && vm.destination != Destination.TODAY) { vm.back() }
     GitHabitTheme(dark) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             contentWindowInsets = WindowInsets.safeDrawing,
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
-                if (authenticated) TopAppBar(
+                if (workspaceOpen) TopAppBar(
                     title = {
                         if (vm.destination in mainTabs) Brand(compact = true)
                         else Text(when (vm.destination) {
@@ -91,7 +87,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                 )
             },
             bottomBar = {
-                if (authenticated) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                if (workspaceOpen) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                     mainTabs.forEach { tab ->
                         NavigationBarItem(selected = vm.destination == tab || (tab == Destination.REPOS && vm.destination == Destination.DETAIL),
                             onClick = { vm.navigate(tab, mainTab = true) }, modifier = Modifier.focusOutline().testTag("tab-${tab.name}"),
@@ -115,8 +111,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                             onSaveCopy = { recoveryExport.launch("githabit-recovery-${vm.today}.json") },
                             onStartOver = vm::startOverFromRecovery,
                         )
-                        !vm.entryOpen -> SignInScreen(vm)
-                        !localHistory -> OnboardingScreen(vm)
+                        vm.needsWelcome -> WelcomeScreen(vm)
                         else -> {
                             savedState.SaveableStateProvider("${vm.destination}-${vm.selectedRepoId}") {
                                 Box(Modifier.fillMaxSize().testTag("page-${vm.destination.name}")) {
@@ -135,6 +130,6 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                 }
             }
         }
-        if (authenticated) WorkspaceSheet(vm, sheetState)
+        if (workspaceOpen) WorkspaceSheet(vm, sheetState)
     }
 }

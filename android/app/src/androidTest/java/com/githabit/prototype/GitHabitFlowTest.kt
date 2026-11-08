@@ -12,6 +12,7 @@ import com.githabit.prototype.data.WriteOutcome
 import com.githabit.prototype.domain.*
 import com.githabit.prototype.fixtures.verifyDisposableDevice
 import com.githabit.prototype.fixtures.AuthorizedTestTarget
+import com.githabit.prototype.fixtures.WorkspaceFixtures
 import java.time.LocalDate
 import org.junit.After
 import org.junit.Assert.*
@@ -46,16 +47,18 @@ class GitHabitFlowTest {
         disposableVerified = true
     }
 
-    @Before fun launchFreshWorkspace() {
+    @Before fun authorizeWorkspace() {
         requireDisposableDevice()
+    }
+
+    private fun launch(workspace: Workspace = Workspace()) {
+        check(disposableVerified && !::scenario.isInitialized)
         store = WorkspaceStore(context)
         // No Activity exists yet: this test owner cannot race the application's store.
         store.load()
-        // These existing screenshot/theme journeys explicitly start dark; the app's
-        // fresh/reset default is SYSTEM, independent of this isolated test preference.
-        assertEquals(WriteOutcome.Committed, store.replaceVerified(Workspace(theme = ThemePreference.DARK)))
+        assertEquals(WriteOutcome.Committed, store.replaceVerified(workspace))
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        waitForTag("google-sign-in")
+        waitForTag(if (workspace.onboarded || workspace.habits.isNotEmpty()) "page-TODAY" else "local-welcome")
     }
 
     @After fun closeActivity() {
@@ -106,13 +109,11 @@ class GitHabitFlowTest {
     }
     private fun clickText(text: String) { dismissNotice(); compose.onNodeWithText(text).performScrollTo().performClick() }
     private fun clickTag(tag: String) { dismissNotice(); compose.onNodeWithTag(tag).performScrollTo().performClick() }
-    private fun sample() { clickTag("explore-demo"); waitForTag("page-TODAY") }
+    private fun launchFixture() = launch(WorkspaceFixtures.populated(LocalDate.now()))
 
     @Test fun onboardingFractionalProgressCompletionUndoCorrectionAndDeletion() {
-        clickTag("google-sign-in")
-        clickText("Continue")
-        clickText("Continue")
-        clickText("Create my first repo")
+        launch()
+        clickTag("create-first-repo")
         waitForTag("repo-name")
         compose.onNodeWithTag("repo-name").performTextInput("Practice guitar")
         compose.onNodeWithTag("repo-target").performTextReplacement("0.3")
@@ -151,12 +152,12 @@ class GitHabitFlowTest {
         assertEquals(0.15, persisted().progress(habit, LocalDate.now()).total, 0.0)
     }
 
-    @Test fun sampleNavigationHeatmapThemeAndActivityRecreation() {
-        sample()
+    @Test fun fixtureNavigationHeatmapThemeAndActivityRecreation() {
+        launchFixture()
         compose.onNodeWithTag("tab-REPOS").performClick()
         compose.onNodeWithTag("repo-search").performTextInput("Read")
         closeSoftKeyboard()
-        clickTag("habit-sample-0")
+        clickTag("habit-${WorkspaceFixtures.READING_ID}")
         waitForTag("page-DETAIL")
         clickText("Explore by date")
         compose.onNodeWithContentDescription("Previous day").performClick()
@@ -175,14 +176,14 @@ class GitHabitFlowTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("page-TODAY")
         assertEquals(com.githabit.prototype.domain.ThemePreference.LIGHT, persisted().theme)
-        assertEquals(6, persisted().habits.size)
+        assertEquals(2, persisted().habits.size)
     }
 
     @Test fun pauseArchiveResumeAndHistoricalGoals() {
-        sample()
+        launchFixture()
         val before = persisted()
         compose.onNodeWithTag("tab-REPOS").performClick()
-        clickTag("habit-sample-0")
+        clickTag("habit-${WorkspaceFixtures.READING_ID}")
         clickText("Pause")
         awaitState { it.habits.first().versionOn(LocalDate.now())?.status == RepoStatus.PAUSED }
         clickText("Resume repo")
@@ -199,49 +200,30 @@ class GitHabitFlowTest {
         awaitState { it.habits.first().versionOn(LocalDate.now())?.status == RepoStatus.ARCHIVED }
         compose.onNodeWithTag("tab-REPOS").performClick()
         clickText("Archived")
-        compose.onNodeWithTag("habit-sample-0").assertExists()
+        compose.onNodeWithTag("habit-${WorkspaceFixtures.READING_ID}").assertExists()
         clickText("Resume")
         awaitState { it.habits.first().versionOn(LocalDate.now())?.status == RepoStatus.ACTIVE }
         assertEquals(before.commits, persisted().commits)
     }
 
-    @Test fun emailValidationSignOutResetAndNoCredentialsStored() {
-        clickTag("email-sign-in")
-        compose.onNodeWithText("Use a demo email and at least 6 made-up password characters.").assertExists()
-        compose.onNodeWithTag("demo-email").performTextInput("demo@example.test")
-        compose.onNodeWithTag("demo-password").performTextInput("made-up-123")
-        closeSoftKeyboard()
-        clickTag("email-sign-in")
-        clickText("Skip introduction")
-        clickText("Try it with sample habits first")
-        waitForTag("page-TODAY")
-        val raw = context.getFileStreamPath("githabit-workspace.json").readText()
-        assertFalse(raw.contains("demo@example.test"))
-        assertFalse(raw.contains("made-up-123"))
+    @Test fun cancelledResetKeepsHistoryAndConfirmedResetStaysEmpty() {
+        launchFixture()
+        val before = persisted()
         compose.onNodeWithTag("open-settings").performClick()
-        clickText("Sign out of the demo")
-        waitForTag("google-sign-in")
-        assertEquals(6, persisted().habits.size)
-        clickTag("explore-demo")
-        waitForTag("page-TODAY")
-        compose.onNodeWithTag("open-settings").performClick()
-        clickText("Reset this prototype")
+        clickText("Reset workspace")
         compose.onNodeWithText("Cancel").performClick()
-        assertEquals(6, persisted().habits.size)
-        clickText("Reset this prototype")
+        assertEquals(before, persisted())
+        clickText("Reset workspace")
         compose.onNodeWithText("Reset everything").performClick()
-        waitForTag("google-sign-in")
+        waitForTag("local-welcome")
+        assertEquals(Workspace(), persisted())
+        scenario.recreate()
+        waitForTag("local-welcome")
         assertEquals(Workspace(), persisted())
     }
 
     @Test fun screenshotJourneyAcrossNativeScreens() {
-        screenshot("01-sign-in")
-        clickTag("google-sign-in")
-        compose.onNodeWithText("Create your first repo.").assertExists()
-        screenshot("02-onboarding")
-        clickText("Skip introduction")
-        clickText("Try it with sample habits first")
-        waitForTag("page-TODAY")
+        launchFixture()
         screenshot("03-today-dark")
         clickTag("new-repo")
         waitForTag("repo-name")
@@ -250,7 +232,7 @@ class GitHabitFlowTest {
         compose.onNodeWithTag("tab-REPOS").performClick()
         waitForTag("page-REPOS")
         screenshot("04-repos")
-        clickTag("habit-sample-0")
+        clickTag("habit-${WorkspaceFixtures.READING_ID}")
         waitForTag("page-DETAIL")
         screenshot("05-repo-detail")
         clickText("Log progress")

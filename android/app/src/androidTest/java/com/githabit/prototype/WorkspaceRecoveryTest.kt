@@ -51,10 +51,10 @@ class WorkspaceRecoveryTest {
     @Test fun missingStartupAndRecreationCreateNoData() {
         assertFalse(primary.exists())
         launch()
-        waitFor("google-sign-in")
+        waitFor("local-welcome")
         assertFalse(primary.exists())
         scenario!!.recreate()
-        waitFor("google-sign-in")
+        waitFor("local-welcome")
         assertFalse(primary.exists())
     }
 
@@ -63,7 +63,7 @@ class WorkspaceRecoveryTest {
         AtomicFileAccess(context).writeBytes(raw)
         launch()
         waitFor("recovery-retry")
-        compose.onNodeWithTag("google-sign-in").assertDoesNotExist()
+        compose.onNodeWithTag("local-welcome").assertDoesNotExist()
         compose.onNodeWithTag("recovery-save-copy").assertIsEnabled()
         compose.onNodeWithTag("recovery-start-over").performScrollTo().performClick()
         compose.onNodeWithText("Cancel").performClick()
@@ -85,13 +85,13 @@ class WorkspaceRecoveryTest {
         waitFor("recovery-start-over")
         compose.onNodeWithTag("recovery-start-over").performScrollTo().performClick()
         compose.onNodeWithText("Start over", substring = false).performClick()
-        waitFor("google-sign-in")
+        waitFor("local-welcome")
         assertEquals(Workspace(), WorkspaceJson.decode(primary.readText()))
         assertTrue(context.filesDir.listFiles()!!.any {
             it.name.startsWith("githabit-recovery-") && it.readBytes().contentEquals(raw)
         })
         scenario!!.recreate()
-        waitFor("google-sign-in")
+        waitFor("local-welcome")
         assertEquals(Workspace(), WorkspaceJson.decode(primary.readText()))
     }
 
@@ -100,8 +100,8 @@ class WorkspaceRecoveryTest {
         AtomicFileAccess(context).writeBytes(raw)
         launch()
         waitFor("recovery-retry")
-        compose.onNodeWithTag("google-sign-in").assertDoesNotExist()
-        compose.onNodeWithTag("explore-demo").assertDoesNotExist()
+        compose.onNodeWithTag("local-welcome").assertDoesNotExist()
+        compose.onNodeWithTag("page-TODAY").assertDoesNotExist()
         assertArrayEquals(raw, primary.readBytes())
     }
 
@@ -155,7 +155,7 @@ class WorkspaceRecoveryTest {
         assertTrue(context.filesDir.listFiles()!!.any { it.name.startsWith("githabit-recovery-") && it.readBytes().contentEquals(raw) })
         launch()
         waitFor("page-TODAY")
-        compose.onNodeWithTag("google-sign-in").assertDoesNotExist()
+        compose.onNodeWithTag("local-welcome").assertDoesNotExist()
     }
 
     @Test fun productionAccessObjectsShareStorageOwnership() {

@@ -96,6 +96,53 @@ class GitHabitViewModelLoadTest {
         advanceUntilIdle()
         assertTrue(vm.load is WorkspaceLoad.Ready)
         assertEquals(expected, vm.workspace)
+        assertFalse(vm.needsWelcome) // Populated v2 also bypasses an unset onboarding flag.
+    }
+
+    @Test fun welcomePersistsOnlyOnboardingAndNoOpEntryStillOpensForm() = runTest(testDispatcher) {
+        val access = FakeAccessForViewModel()
+        val vm = model(access)
+        advanceUntilIdle()
+        access.beforeRead = {
+            if (access.writes > 0) {
+                assertTrue(vm.needsWelcome)
+                assertNull(vm.overlay)
+            }
+        }
+        vm.finishWelcome()
+        vm.finishWelcome() // Duplicate in-flight entry is ignored.
+        advanceUntilIdle()
+        assertEquals(Workspace(onboarded = true), vm.workspace)
+        assertEquals(Overlay.RepoForm(), vm.overlay)
+        assertEquals(1, access.writes)
+        access.beforeRead = null
+        vm.overlay = null
+        vm.finishWelcome()
+        advanceUntilIdle()
+        assertEquals(Overlay.RepoForm(), vm.overlay)
+        assertEquals(1, access.writes)
+        vm.overlay = null
+        val restarted = model(access)
+        advanceUntilIdle()
+        assertFalse(restarted.needsWelcome)
+        assertEquals(Workspace(onboarded = true), restarted.workspace)
+    }
+
+    @Test fun failedWelcomeDoesNotOpenFormAndRetryCreatesNoHistory() = runTest(testDispatcher) {
+        val access = FakeAccessForViewModel(WorkspaceJson.encode(Workspace()).toByteArray())
+        val vm = model(access)
+        advanceUntilIdle()
+        access.failAllWrites = true
+        vm.finishWelcome()
+        advanceUntilIdle()
+        assertTrue(vm.needsWelcome)
+        assertNull(vm.overlay)
+        assertEquals(Workspace(), vm.workspace)
+        access.failAllWrites = false
+        vm.finishWelcome(createRepo = false)
+        advanceUntilIdle()
+        assertEquals(Workspace(onboarded = true), vm.workspace)
+        assertNull(vm.overlay)
     }
 
     @Test fun signedOutLegacyHistoryOpensLocallyAndSurvivesPreferenceEdits() = runTest(testDispatcher) {
@@ -104,7 +151,7 @@ class GitHabitViewModelLoadTest {
         val vm = model(access)
         advanceUntilIdle()
         assertTrue(vm.load is WorkspaceLoad.Ready)
-        assertTrue(vm.entryOpen)
+        assertFalse(vm.needsWelcome)
         assertTrue(vm.workspace.onboarded)
         val migrated = vm.workspace
         assertEquals(listOf("sample-0", "personal-paused", "personal-archived"), migrated.habits.map { it.id })
@@ -119,7 +166,7 @@ class GitHabitViewModelLoadTest {
         val restarted = model(access)
         advanceUntilIdle()
         assertEquals(vm.workspace, restarted.workspace)
-        assertTrue(restarted.entryOpen)
+        assertFalse(restarted.needsWelcome)
         assertTrue(access.retainedCopies.any { it.contentEquals(raw) })
     }
 
@@ -232,7 +279,7 @@ class GitHabitViewModelLoadTest {
         val access = FakeAccessForViewModel()
         val vm = model(access)
         assertEquals(WorkspaceLoad.Loading, vm.load)
-        vm.signIn(); vm.explore(); vm.startEmpty(); vm.setTheme(false); vm.reset()
+        vm.finishWelcome(); vm.setTheme(false); vm.reset()
         vm.saveHabit(null, HabitDraft("Read", "", 5.0, "pages"))
         advanceUntilIdle()
         assertEquals(0, access.writes)
@@ -244,7 +291,7 @@ class GitHabitViewModelLoadTest {
         val access = FakeAccessForViewModel(bytes)
         val vm = model(access)
         advanceUntilIdle()
-        vm.signIn(); vm.signOut(); vm.explore(); vm.startEmpty(); vm.setTheme(false); vm.reset()
+        vm.finishWelcome(); vm.setTheme(false); vm.reset()
         vm.saveProfile("New", ""); vm.removeCommit("entry"); vm.complete("read")
         vm.saveCommit("read", null, 1.0, "")
         vm.status("read", com.githabit.prototype.domain.RepoStatus.PAUSED)

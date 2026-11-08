@@ -96,10 +96,8 @@ class GitHabitViewModel(
     var selectedRepoId by mutableStateOf<String?>(null)
         private set
     var overlay by mutableStateOf<Overlay?>(null)
-    var onboardingStep by mutableIntStateOf(0)
-    /** Temporary entry-screen adapter until Task 7; never part of workspace storage. */
-    var entryOpen by mutableStateOf(false)
-        private set
+    val needsWelcome: Boolean
+        get() = !workspace.onboarded && workspace.habits.isEmpty() && workspace.commits.isEmpty()
     var workspaceSession by mutableIntStateOf(0)
         private set
 
@@ -162,7 +160,6 @@ class GitHabitViewModel(
         when (result) {
             is WorkspaceLoadResult.Missing -> {
                 workspace = Workspace()
-                entryOpen = false
                 load = WorkspaceLoad.Ready(isNew = true)
             }
             is WorkspaceLoadResult.Ready -> {
@@ -182,7 +179,6 @@ class GitHabitViewModel(
                 uncertainOrdinaryBoundary = null
                 workspace = result.workspace
                 reconcileCalendarObservation()
-                entryOpen = workspace.onboarded || workspace.habits.isNotEmpty() || workspace.commits.isNotEmpty()
                 load = WorkspaceLoad.Ready(isNew = false)
             }
             is WorkspaceLoadResult.Unreadable -> {
@@ -223,8 +219,6 @@ class GitHabitViewModel(
         backStack = emptyList()
         destination = Destination.TODAY
         selectedRepoId = null
-        onboardingStep = 0
-        entryOpen = false
     }
 
     private fun replaceWithEmpty(fromRecovery: Boolean) = replaceWorkspace(Workspace(), fromRecovery)
@@ -240,7 +234,6 @@ class GitHabitViewModel(
                     withContext(NonCancellable) {
                         if (persist(candidate, replacement = true)) {
                             clearTransientState()
-                            entryOpen = candidate.onboarded || candidate.habits.isNotEmpty() || candidate.commits.isNotEmpty()
                             load = WorkspaceLoad.Ready(isNew = candidate == Workspace())
                             refreshDate()
                             noticeChannel.trySend(Notice("Workspace replaced. Any previous data was preserved on this device before replacement."))
@@ -440,27 +433,17 @@ class GitHabitViewModel(
         return id
     }
 
-    fun signIn() {
+    /** Welcome changes only onboarding state; opening/cancelling the form adds no records. */
+    fun finishWelcome(createRepo: Boolean = true) {
         if (busy || load !is WorkspaceLoad.Ready) return
-        entryOpen = true
-        onboardingStep = 0
-        navigate(Destination.TODAY, mainTab = true)
-    }
-
-    fun explore() {
-        if (busy || load !is WorkspaceLoad.Ready) return
-        if (workspace.onboarded) { signIn(); return }
-        update(after = { entryOpen = true; navigate(Destination.TODAY, mainTab = true) }) { it, _ ->
-            if (it.habits.isNotEmpty() || it.commits.isNotEmpty()) it.copy(onboarded = true)
-            else SampleWorkspace.create().copy(theme = it.theme, name = it.name, bio = it.bio, calendar = it.calendar)
+        val openWorkspace = {
+            navigate(Destination.TODAY, mainTab = true)
+            if (createRepo) overlay = Overlay.RepoForm()
         }
+        // A redundant entry action still opens its form without an unnecessary write.
+        if (workspace.onboarded) openWorkspace()
+        else update(after = openWorkspace) { it, _ -> it.copy(onboarded = true) }
     }
-
-    fun startEmpty() = update(after = {
-        entryOpen = true
-        navigate(Destination.TODAY, mainTab = true)
-        overlay = Overlay.RepoForm()
-    }) { it, _ -> it.copy(onboarded = true) }
 
     fun saveHabit(id: String?, draft: HabitDraft, intendedDate: LocalDate = today, onDateChanged: (LocalDate) -> Unit = {}) = update(
         message = if (id == null) "Your new repo is ready. Start with a small commit." else "Repo updated. Keep growing.",
@@ -528,12 +511,6 @@ class GitHabitViewModel(
         require(name.trim().length <= 40) { "Keep your display name within 40 characters." }
         require(bio.length <= 160) { "Keep your note within 160 characters." }
         it.copy(name = name.trim(), bio = bio.trim())
-    }
-
-    fun signOut() {
-        if (busy || load !is WorkspaceLoad.Ready) return
-        entryOpen = false
-        undos.clear(); overlay = null; navigate(Destination.TODAY, mainTab = true)
     }
 
     /** Confirmed reset: preserve a copy first, then replace with verified empty data. */
