@@ -9,6 +9,7 @@ import androidx.test.espresso.Espresso.closeSoftKeyboard
 import com.githabit.prototype.data.WorkspaceStore
 import com.githabit.prototype.data.WorkspaceJson
 import com.githabit.prototype.data.WriteOutcome
+import com.githabit.prototype.data.AtomicFileAccess
 import com.githabit.prototype.domain.*
 import com.githabit.prototype.fixtures.verifyDisposableDevice
 import com.githabit.prototype.fixtures.AuthorizedTestTarget
@@ -26,7 +27,6 @@ class GitHabitFlowTest {
     @get:Rule val compose = createEmptyComposeRule()
     @get:Rule val testName = TestName()
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var store: WorkspaceStore
     private lateinit var scenario: ActivityScenario<MainActivity>
     private var disposableVerified = false
     private var screenshotsAllowed = false
@@ -51,14 +51,21 @@ class GitHabitFlowTest {
         requireDisposableDevice()
     }
 
-    private fun launch(workspace: Workspace = Workspace()) {
+    private fun launch(workspace: Workspace? = null) {
         check(disposableVerified && !::scenario.isInitialized)
-        store = WorkspaceStore(context)
         // No Activity exists yet: this test owner cannot race the application's store.
-        store.load()
-        assertEquals(WriteOutcome.Committed, store.replaceVerified(workspace))
+        if (workspace == null) {
+            context.filesDir.listFiles()?.filter {
+                it.name.startsWith(AtomicFileAccess.FILE_NAME) ||
+                    it.name.startsWith("githabit-recovery-") || it.name == "githabit-last-good.json"
+            }?.forEach { check(it.delete()) { "Could not remove disposable workspace file ${it.name}" } }
+        } else {
+            val store = WorkspaceStore(context)
+            store.load()
+            assertEquals(WriteOutcome.Committed, store.replaceVerified(workspace))
+        }
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        waitForTag(if (workspace.onboarded || workspace.habits.isNotEmpty()) "page-TODAY" else "local-welcome")
+        waitForTag(if (workspace != null && (workspace.onboarded || workspace.habits.isNotEmpty())) "page-TODAY" else "local-welcome")
     }
 
     @After fun closeActivity() {
@@ -167,11 +174,11 @@ class GitHabitFlowTest {
         compose.onNodeWithTag("tab-INSIGHTS").performClick()
         compose.onNodeWithText("The bigger picture").assertIsDisplayed()
         compose.onNodeWithTag("open-settings").performClick()
-        clickTag("theme-switch")
+        clickTag("theme-LIGHT")
         awaitState { it.theme == com.githabit.prototype.domain.ThemePreference.LIGHT }
         scenario.recreate()
         waitForTag("page-SETTINGS")
-        compose.onNodeWithTag("theme-switch").assertIsOff()
+        compose.onNodeWithTag("theme-LIGHT").assertIsSelected()
         scenario.close()
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitForTag("page-TODAY")
@@ -222,6 +229,60 @@ class GitHabitFlowTest {
         assertEquals(Workspace(), persisted())
     }
 
+    @Test fun welcomeHelpPreferencesAndCancelledFormsNeverCreateHistory() {
+        launch()
+        assertFalse(context.getFileStreamPath(AtomicFileAccess.FILE_NAME).exists())
+        screenshot("01-local-welcome-empty")
+        clickTag("create-first-repo")
+        waitForTag("repo-name")
+        compose.onNodeWithTag("repo-name").performTextInput("Unsaved intention")
+        closeSoftKeyboard()
+        clickTag("close-sheet")
+        assertEquals(Workspace(onboarded = true), persisted())
+        screenshot("02-empty-workspace")
+        compose.onNodeWithTag("open-settings").performClick()
+        compose.onNodeWithTag("profile-heading").assertTextEquals("Your workspace")
+        compose.onNodeWithTag("profile-name").performTextInput("Chosen name")
+        compose.onNodeWithTag("profile-bio").performScrollTo().performTextInput("Chosen note")
+        closeSoftKeyboard()
+        scenario.recreate()
+        waitForTag("page-SETTINGS")
+        compose.onNodeWithTag("profile-name").assertTextContains("Chosen name")
+        clickTag("save-profile")
+        awaitState { it.name == "Chosen name" && it.bio == "Chosen note" }
+        for (theme in listOf(ThemePreference.LIGHT, ThemePreference.DARK, ThemePreference.SYSTEM)) {
+            clickTag("theme-${theme.name}")
+            awaitState { it.theme == theme }
+        }
+        clickTag("week-start-SUNDAY")
+        assertEquals(java.time.DayOfWeek.MONDAY, persisted().calendar.initialWeekStart)
+        scenario.recreate()
+        waitForTag("page-SETTINGS")
+        compose.onNodeWithTag("week-start-SUNDAY").assertIsSelected()
+        compose.onNodeWithTag("calendar-preview").assertExists()
+        assertEquals(java.time.DayOfWeek.MONDAY, persisted().calendar.initialWeekStart)
+        clickTag("save-week-start")
+        awaitState { it.calendar.initialWeekStart == java.time.DayOfWeek.SUNDAY }
+        clickTag("open-guide")
+        clickTag("close-sheet")
+        clickTag("profile-name")
+        compose.onNodeWithTag("profile-name").performTextClearance()
+        compose.onNodeWithTag("profile-bio").performScrollTo().performTextClearance()
+        closeSoftKeyboard()
+        clickTag("save-profile")
+        awaitState { it.name.isEmpty() && it.bio.isEmpty() }
+        for (tab in listOf("REPOS", "INSIGHTS", "TODAY")) {
+            compose.onNodeWithTag("tab-$tab").performClick()
+            waitForTag("page-$tab")
+        }
+        clickTag("new-repo")
+        clickTag("close-sheet")
+        scenario.close()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        waitForTag("page-TODAY")
+        assertEquals(Workspace(onboarded = true, calendar = WeekCalendar(java.time.DayOfWeek.SUNDAY)), persisted())
+    }
+
     @Test fun screenshotJourneyAcrossNativeScreens() {
         launchFixture()
         screenshot("03-today-dark")
@@ -251,7 +312,7 @@ class GitHabitFlowTest {
         compose.onNodeWithTag("open-settings").performClick()
         waitForTag("page-SETTINGS")
         screenshot("10-settings")
-        clickTag("theme-switch")
+        clickTag("theme-LIGHT")
         awaitState { it.theme == com.githabit.prototype.domain.ThemePreference.LIGHT }
         compose.onNodeWithTag("tab-TODAY").performClick()
         waitForTag("page-TODAY")

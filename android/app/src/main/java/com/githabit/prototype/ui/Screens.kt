@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
-import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -112,6 +111,19 @@ fun WelcomeScreen(vm: GitHabitViewModel) {
 fun TodayScreen(vm: GitHabitViewModel) {
     val state = vm.workspace
     val today = vm.today
+    if (state.habits.isEmpty()) {
+        PageColumn {
+            Text(stringResource(R.string.empty_workspace_title), style = MaterialTheme.typography.headlineMedium)
+            Subtitle(stringResource(R.string.empty_workspace_description))
+            Button(onClick = { vm.overlay = Overlay.RepoForm() }, enabled = !vm.busy,
+                modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch)
+                    .focusOutline(CircleShape, MaterialTheme.colorScheme.onPrimary).testTag("new-repo")) {
+                Text(stringResource(R.string.create_first_repo))
+            }
+            Footer()
+        }
+        return
+    }
     var onlyRemaining by rememberSaveable { mutableStateOf(false) }
     val active = state.habits.filter { it.versionOn(today)?.status == RepoStatus.ACTIVE }
     val complete = active.count { state.progress(it, today).complete }
@@ -378,66 +390,6 @@ fun InsightsScreen(vm: GitHabitViewModel) {
             Subtitle("Partial progress counts, too. Focus on returning, not on being perfect.")
         }
         Heatmap(state, vm.today) { vm.overlay = Overlay.Day(it) }
-    }
-}
-
-@Composable
-fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
-    var name by rememberSaveable(vm.workspace.name) { mutableStateOf(vm.workspace.name) }
-    var bio by rememberSaveable(vm.workspace.bio) { mutableStateOf(vm.workspace.bio) }
-    var resetConfirmation by rememberSaveable { mutableStateOf(false) }
-    PageColumn(Modifier.imePadding()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Make it your space", style = MaterialTheme.typography.headlineMedium)
-            Subtitle("A few preferences for your everyday.")
-        }
-        Panel {
-            SectionHeading("Personal workspace")
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(MaterialTheme.colorScheme.primaryContainer), Alignment.Center) {
-                    if (vm.workspace.name.isBlank()) Icon(Icons.Outlined.PersonOutline, null)
-                    else Text(vm.workspace.name.trim().take(1).uppercase(), fontWeight = FontWeight.Bold, fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
-                }
-                Column { Text(vm.workspace.name.ifBlank { "Your workspace" }, style = MaterialTheme.typography.titleLarge); Subtitle("Local workspace") }
-            }
-            OutlinedTextField(name, { if (it.length <= 40) name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(bio, { if (it.length <= 160) bio = it }, label = { Text("A note to yourself") }, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = { vm.saveProfile(name, bio) }, enabled = !vm.busy) { Text("Save profile") }
-        }
-        Panel {
-            SectionHeading("Look & feel")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("Dark theme", style = MaterialTheme.typography.titleMedium); Subtitle("A familiar green, in your favorite light.") }
-                Switch(checked = LocalDarkTheme.current, onCheckedChange = { vm.setTheme(it) }, modifier = Modifier.testTag("theme-switch"))
-            }
-        }
-        Panel {
-            SectionHeading("Your data, your device")
-            SettingsAction("Export your workspace", "Save your habits and history as JSON.", Icons.Outlined.Download, onExport)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SettingsAction("Replay the introduction", "Repos, commits, and consistency.", Icons.AutoMirrored.Outlined.HelpOutline) { vm.overlay = Overlay.Guide }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SettingsAction("Activity log", "Review or correct your contributions.", Icons.Outlined.History) { vm.navigate(Destination.ACTIVITY) }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            TextButton(onClick = { resetConfirmation = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.reset_workspace))
-            }
-        }
-        Subtitle(stringResource(R.string.local_storage_notice))
-        Footer()
-    }
-    if (resetConfirmation) ConfirmDialog("Start with a clean slate?", "This removes all local repos, commits, and preferences. Export a copy first if you want to keep it.",
-        "Reset everything", destructive = true, onDismiss = { resetConfirmation = false }, onConfirm = { resetConfirmation = false; vm.reset() })
-}
-
-@Composable
-private fun SettingsAction(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, action: () -> Unit) {
-    Surface(onClick = action, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Column(Modifier.weight(1f)) { Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium); Subtitle(detail) }
-            Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 

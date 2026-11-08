@@ -318,6 +318,7 @@ class GitHabitViewModel(
         onDateChanged: (LocalDate) -> Unit = {},
         undo: ((Workspace, Workspace, CommandTime) -> UndoRecord)? = null,
         after: () -> Unit = {},
+        afterUnchanged: () -> Unit = {},
         retryUndoId: String? = null,
         transform: (Workspace, CommandTime) -> Workspace,
     ) {
@@ -342,6 +343,9 @@ class GitHabitViewModel(
                     if (next == before) {
                         if (before != committedBefore && !withContext(NonCancellable) { persist(before) }) return@withLock
                         if (dismiss) overlay = null
+                        try { afterUnchanged() } catch (_: Exception) {
+                            noticeChannel.trySend(Notice("Your saved data is unchanged, but the screen could not be updated. Reopen it."))
+                        }
                         return@withLock
                     }
                     // Build the inverse before anything is written: a builder failure must
@@ -498,19 +502,21 @@ class GitHabitViewModel(
         }
     }
 
-    fun setTheme(dark: Boolean) = setTheme(if (dark) ThemePreference.DARK else ThemePreference.LIGHT)
     fun setTheme(theme: ThemePreference) = update { it, _ -> it.copy(theme = theme) }
 
-    /** Task 7 supplies Settings controls; calendar commands already share verified storage. */
+    /** Settings and calendar maintenance share the verified storage boundary. */
     fun setWeekStart(weekday: DayOfWeek, intendedDate: LocalDate = today, onDateChanged: (LocalDate) -> Unit = {}) = update(
         message = "Calendar preference saved. Check its effective and pending dates in Settings.",
         intendedDate = intendedDate, onDateChanged = onDateChanged,
     ) { it, time -> it.requestWeekStart(weekday, time.date) }
 
-    fun saveProfile(name: String, bio: String) = update(message = "Your workspace feels a little more like you.") { it, _ ->
+    fun saveProfile(name: String, bio: String, onSaved: () -> Unit = {}) = update(
+        message = "Profile saved on this device.", after = onSaved, afterUnchanged = onSaved,
+    ) { it, _ ->
         require(name.trim().length <= 40) { "Keep your display name within 40 characters." }
         require(bio.length <= 160) { "Keep your note within 160 characters." }
-        it.copy(name = name.trim(), bio = bio.trim())
+        // An unrelated edit must not normalize valid legacy values left untouched.
+        it.copy(name = if (name == it.name) it.name else name.trim(), bio = if (bio == it.bio) it.bio else bio.trim())
     }
 
     /** Confirmed reset: preserve a copy first, then replace with verified empty data. */

@@ -15,10 +15,12 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.Destination
 import com.githabit.prototype.GitHabitViewModel
 import com.githabit.prototype.WorkspaceLoad
+import com.githabit.prototype.R
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +82,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                         }
                         if (vm.destination != Destination.SETTINGS) IconButton(onClick = { vm.navigate(Destination.SETTINGS) },
                             modifier = Modifier.focusOutline(CircleShape).testTag("open-settings")) {
-                            Icon(Icons.Outlined.AccountCircle, "Open settings")
+                            Icon(Icons.Outlined.Settings, "Open settings")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -104,7 +106,12 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
                 Box(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
                     when {
-                        load is WorkspaceLoad.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                        load is WorkspaceLoad.Loading -> Column(Modifier.fillMaxSize().testTag("workspace-loading"),
+                            verticalArrangement = Arrangement.spacedBy(GitHabitSpace.medium, Alignment.CenterVertically),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Text(stringResource(R.string.loading_workspace))
+                        }
                         recovery != null -> RecoveryScreen(
                             recovery, vm.canSaveRecoveryCopy, vm.busy,
                             onRetry = vm::retryLoad,

@@ -6,6 +6,7 @@ import com.githabit.prototype.data.UnreadableKind
 import com.githabit.prototype.data.WorkspaceJson
 import com.githabit.prototype.domain.HabitDraft
 import com.githabit.prototype.domain.Workspace
+import com.githabit.prototype.domain.ThemePreference
 import com.githabit.prototype.domain.addCommit
 import com.githabit.prototype.domain.createHabit
 import com.githabit.prototype.domain.AppClock
@@ -72,7 +73,7 @@ class GitHabitViewModelLoadTest {
         assertTrue(recovery.preserved)
         assertTrue(vm.canSaveRecoveryCopy)
 
-        vm.setTheme(false)
+        vm.setTheme(ThemePreference.LIGHT)
         vm.saveHabit(null, HabitDraft("X", "", 1.0, "unit"))
         vm.complete("read")
         advanceUntilIdle()
@@ -143,6 +144,101 @@ class GitHabitViewModelLoadTest {
         advanceUntilIdle()
         assertEquals(Workspace(onboarded = true), vm.workspace)
         assertNull(vm.overlay)
+    }
+
+    @Test fun profileThemeCalendarNavigationAndDateChangesNeverSeedHistory() = runTest(testDispatcher) {
+        val access = FakeAccessForViewModel()
+        val vm = model(access)
+        advanceUntilIdle()
+        vm.finishWelcome(createRepo = false)
+        advanceUntilIdle()
+        vm.saveProfile("  Chosen name  ", "  Chosen note  ")
+        advanceUntilIdle()
+        assertEquals("Chosen name", vm.workspace.name)
+        assertEquals("Chosen note", vm.workspace.bio)
+        for (theme in ThemePreference.entries) {
+            vm.setTheme(theme)
+            advanceUntilIdle()
+            assertEquals(theme, vm.workspace.theme)
+        }
+        for (weekday in java.time.DayOfWeek.entries) {
+            vm.setWeekStart(weekday)
+            advanceUntilIdle()
+            assertEquals(weekday, vm.workspace.calendar.effectiveWeekStart(clock.date))
+            assertNull(vm.workspace.calendar.pending)
+        }
+        vm.navigate(Destination.SETTINGS)
+        vm.overlay = Overlay.Guide
+        vm.back()
+        vm.overlay = Overlay.RepoForm()
+        vm.back()
+        clock.date = clock.date.plusDays(30)
+        vm.refreshDate()
+        vm.saveProfile("", "")
+        advanceUntilIdle()
+        assertTrue(vm.workspace.habits.isEmpty())
+        assertTrue(vm.workspace.commits.isEmpty())
+        assertEquals("", vm.workspace.name)
+        assertEquals("", vm.workspace.bio)
+        val restarted = model(access)
+        advanceUntilIdle()
+        assertEquals(vm.workspace, restarted.workspace)
+        assertFalse(restarted.needsWelcome)
+    }
+
+    @Test fun profileValidationRollbackAndUnchangedLegacyFieldsArePreserved() = runTest(testDispatcher) {
+        val previous = populated().copy(name = "  Legacy name  ", bio = "  Legacy note  ")
+        val access = FakeAccessForViewModel(WorkspaceJson.encode(previous).toByteArray())
+        val vm = model(access)
+        advanceUntilIdle()
+        vm.saveProfile(previous.name, previous.bio)
+        advanceUntilIdle()
+        assertEquals(0, access.writes)
+        vm.saveProfile(previous.name, "new note")
+        advanceUntilIdle()
+        assertEquals(previous.name, vm.workspace.name)
+        val committed = vm.workspace
+        val writes = access.writes
+        vm.saveProfile("n".repeat(41), "")
+        advanceUntilIdle()
+        vm.saveProfile("", "b".repeat(161))
+        advanceUntilIdle()
+        assertEquals(writes, access.writes)
+        assertEquals(committed, vm.workspace)
+        access.failAllWrites = true
+        vm.saveProfile("", "")
+        advanceUntilIdle()
+        assertEquals(committed, vm.workspace)
+        access.failAllWrites = false
+        vm.saveProfile("n".repeat(40), "b".repeat(160))
+        advanceUntilIdle()
+        assertEquals(40, vm.workspace.name.length)
+        assertEquals(160, vm.workspace.bio.length)
+        assertEquals(previous.habits, vm.workspace.habits)
+        assertEquals(previous.commits, vm.workspace.commits)
+    }
+
+    @Test fun profileAcknowledgementRunsAfterVerificationOrValidNoOpButNeverFailure() = runTest(testDispatcher) {
+        val access = FakeAccessForViewModel(WorkspaceJson.encode(Workspace()).toByteArray())
+        val vm = model(access)
+        var acknowledged = 0
+        advanceUntilIdle()
+        vm.saveProfile(" ", " ") { acknowledged++ }
+        advanceUntilIdle()
+        assertEquals(1, acknowledged)
+        assertEquals(0, access.writes)
+        access.failAllWrites = true
+        vm.saveProfile("Name", "Note") { acknowledged++ }
+        advanceUntilIdle()
+        assertEquals(1, acknowledged)
+        access.failAllWrites = false
+        access.beforeRead = { assertEquals(1, acknowledged) }
+        vm.saveProfile("Name", "Note") {
+            assertEquals("Name", vm.workspace.name)
+            acknowledged++
+        }
+        advanceUntilIdle()
+        assertEquals(2, acknowledged)
     }
 
     @Test fun signedOutLegacyHistoryOpensLocallyAndSurvivesPreferenceEdits() = runTest(testDispatcher) {
@@ -279,7 +375,7 @@ class GitHabitViewModelLoadTest {
         val access = FakeAccessForViewModel()
         val vm = model(access)
         assertEquals(WorkspaceLoad.Loading, vm.load)
-        vm.finishWelcome(); vm.setTheme(false); vm.reset()
+        vm.finishWelcome(); vm.setTheme(ThemePreference.LIGHT); vm.reset()
         vm.saveHabit(null, HabitDraft("Read", "", 5.0, "pages"))
         advanceUntilIdle()
         assertEquals(0, access.writes)
@@ -291,7 +387,7 @@ class GitHabitViewModelLoadTest {
         val access = FakeAccessForViewModel(bytes)
         val vm = model(access)
         advanceUntilIdle()
-        vm.finishWelcome(); vm.setTheme(false); vm.reset()
+        vm.finishWelcome(); vm.setTheme(ThemePreference.LIGHT); vm.reset()
         vm.saveProfile("New", ""); vm.removeCommit("entry"); vm.complete("read")
         vm.saveCommit("read", null, 1.0, "")
         vm.status("read", com.githabit.prototype.domain.RepoStatus.PAUSED)
