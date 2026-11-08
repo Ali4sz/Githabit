@@ -63,3 +63,11 @@ object GitHabitType {
         fontSize = 23.sp, lineHeight = 30.sp, letterSpacing = (-0.8).sp)
     val chartLabel = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp)
 }
+
+/** Dense plot geometry, not ordinary control hit targets. Text can enlarge the pitch. */
+internal object HeatmapGeometry {
+    val minimumPitch = 14.dp
+    val gap = 3.dp
+    val corner = 2.dp
+    val legendCell = 7.dp
+}

@@ -27,6 +27,7 @@ class ThemeContractTest {
                 "error" to (onError to error), "errorContainer" to (onErrorContainer to errorContainer),
                 "snackbar" to (inverseOnSurface to inverseSurface), "snackbar action" to (inversePrimary to inverseSurface),
                 "brand" to (primary to primaryContainer),
+                "tonal action focus" to (primary to secondaryContainer),
             )
             pairs.forEach { (name, pair) -> checkContrast(name, pair.first, pair.second, 4.5) }
             surfaces().forEach { surface ->

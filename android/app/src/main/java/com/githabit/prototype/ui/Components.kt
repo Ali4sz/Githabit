@@ -26,11 +26,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.githabit.prototype.domain.*
 import java.text.DecimalFormat
 import java.time.LocalDate
@@ -52,11 +49,11 @@ fun habitIcon(icon: HabitIcon): ImageVector = when (icon) {
 
 @Composable
 fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
         val green = MaterialTheme.colorScheme.primary
-        Box(Modifier.size(if (compact) 34.dp else 40.dp).clip(RoundedCornerShape(11.dp))
+        if (!compact || LocalDensity.current.fontScale <= 1.3f) Box(Modifier.size(if (compact) GitHabitSize.compactBrand else GitHabitSize.glyph).clip(MaterialTheme.shapes.small)
             .background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(24.dp)) {
+            Canvas(Modifier.size(GitHabitSize.icon)) {
                 val x = size.width * 0.3f
                 val right = size.width * 0.74f
                 val top = size.height * .22f
@@ -70,35 +67,38 @@ fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
                 }
             }
         }
-        Row {
-            Text("git", fontSize = if (compact) 23.sp else 26.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
-            Text("habit", fontSize = if (compact) 23.sp else 26.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1).sp)
-        }
+        val style = if (compact) GitHabitType.compactWordmark else GitHabitType.wordmark
+        Text(androidx.compose.ui.text.buildAnnotatedString {
+            append("git")
+            pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
+            append("habit")
+            pop()
+        }, style = style)
     }
 }
 
 @Composable
 fun Eyebrow(text: String, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(5.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
-        Text(text, fontSize = 9.sp, letterSpacing = 1.5.sp, fontFamily = FontFamily.Monospace,
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+        Box(Modifier.size(GitHabitSpace.micro).background(MaterialTheme.colorScheme.primary, CircleShape))
+        Text(text, style = GitHabitType.eyebrow,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    OutlinedCard(modifier, shape = RoundedCornerShape(17.dp),
+    OutlinedCard(modifier, shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+        border = BorderStroke(GitHabitSize.border, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(GitHabitSpace.large), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.medium), content = content)
     }
 }
 
 @Composable
 fun PageColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp), content = content)
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
+        verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section), content = content)
 }
 
 @Composable
@@ -116,17 +116,17 @@ fun Subtitle(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun StatusBadge(text: String, positive: Boolean = false) {
-    Surface(shape = RoundedCornerShape(6.dp), color = if (positive) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        border = if (positive) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Text(text, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall,
-            color = if (positive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    Surface(shape = MaterialTheme.shapes.extraSmall, color = if (positive) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        border = if (positive) null else BorderStroke(GitHabitSize.border, MaterialTheme.colorScheme.outlineVariant)) {
+        Text(text, Modifier.padding(horizontal = GitHabitSpace.small, vertical = GitHabitSpace.micro), style = MaterialTheme.typography.labelSmall,
+            color = if (positive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-fun HabitGlyph(habit: Habit, size: Int = 40) {
+fun HabitGlyph(habit: Habit, size: Int = GitHabitSize.glyph.value.toInt()) {
     val color = habitColor(habit.color)
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape(11.dp)).background(color.copy(alpha = .11f)), Alignment.Center) {
+    Box(Modifier.size(size.dp).clip(MaterialTheme.shapes.small).background(color.copy(alpha = HabitAccentPalette.glyphContainerAlpha)), Alignment.Center) {
         Icon(habitIcon(habit.icon), null, Modifier.size((size * .52).dp), tint = color)
     }
 }
@@ -135,28 +135,23 @@ fun HabitGlyph(habit: Habit, size: Int = 40) {
 fun StatsRow(values: List<Triple<String, String, String>>, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
         if (maxWidth < 340.dp || LocalDensity.current.fontScale > 1.2f) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 values.forEach { (label, value, suffix) ->
                     Panel(Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Subtitle(label.replace('\n', ' '), Modifier.weight(1f))
-                            Text(value + if (suffix.isEmpty()) "" else " $suffix", style = MaterialTheme.typography.titleLarge)
-                        }
+                        Subtitle(label.replace('\n', ' '))
+                        Text(value + if (suffix.isEmpty()) "" else " $suffix", style = MaterialTheme.typography.titleLarge)
                     }
                 }
             }
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 values.forEach { (label, value, suffix) ->
                     OutlinedCard(Modifier.weight(1f), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape = RoundedCornerShape(15.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(label, fontSize = 10.sp, lineHeight = 15.sp, minLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.8).sp)
-                                if (suffix.isNotEmpty()) Text(" $suffix", Modifier.padding(bottom = 4.dp), fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        border = BorderStroke(GitHabitSize.border, MaterialTheme.colorScheme.outlineVariant), shape = MaterialTheme.shapes.medium) {
+                        Column(Modifier.padding(GitHabitSpace.medium), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                            Text(label, style = MaterialTheme.typography.labelSmall, minLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(value, style = GitHabitType.statistic)
+                            if (suffix.isNotEmpty()) Subtitle(suffix)
                         }
                     }
                 }
@@ -171,47 +166,50 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
     val value = remember(state, habit, today) { state.progress(habit, today) }
     val status = habit.versionOn(today)?.status ?: RepoStatus.ACTIVE
     val color = habitColor(habit.color)
-    OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().testTag("habit-${habit.id}"),
-        shape = RoundedCornerShape(17.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().focusOutline(MaterialTheme.shapes.medium).testTag("habit-${habit.id}"),
+        shape = MaterialTheme.shapes.medium, border = BorderStroke(GitHabitSize.border, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(GitHabitSpace.large), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.large)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 HabitGlyph(habit)
                 Spacer(Modifier.weight(1f))
-                if (value.complete) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Outlined.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text("Goal reached", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                if (value.complete) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
+                    Icon(Icons.Outlined.CheckCircle, null, Modifier.size(GitHabitSize.supportingIcon), tint = MaterialTheme.colorScheme.primary)
+                    Text("Goal reached", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 } else StatusBadge(if (status == RepoStatus.ACTIVE) "DAILY" else status.name.lowercase())
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                 Text(habit.name, style = MaterialTheme.typography.titleMedium)
                 Subtitle(habit.description.ifEmpty { "A small step toward your better everyday." })
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("${formatAmount(value.total)} / ${formatAmount(value.target)} ${habit.unit}", fontSize = 12.sp,
-                        modifier = Modifier.weight(1f).testTag("progress-${habit.id}"))
-                    Text(if (value.eligible) "${((value.ratio ?: 0.0) * 100).toInt()}%" else "Not scheduled", fontSize = 11.sp,
+            Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                    Text("${formatAmount(value.total)} / ${formatAmount(value.target)} ${habit.unit}", style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("progress-${habit.id}"))
+                    Text(if (value.eligible) "${((value.ratio ?: 0.0) * 100).toInt()}%" else "Not scheduled", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LinearProgressIndicator(progress = { (value.total / value.target).coerceIn(0.0, 1.0).toFloat() },
-                    modifier = Modifier.fillMaxWidth().height(4.dp), color = color, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth().height(GitHabitSize.progressTrack), color = color, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     drawStopIndicator = {})
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Outlined.LocalFireDepartment, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${state.activityStreak(today, habit.id)}-day activity streak", fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
+                Icon(Icons.Outlined.LocalFireDepartment, null, Modifier.size(GitHabitSize.supportingIcon), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${state.activityStreak(today, habit.id)}-day activity streak", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 if (status == RepoStatus.ACTIVE) {
-                    OutlinedButton(onClick = onLog, enabled = !busy, contentPadding = PaddingValues(horizontal = 13.dp),
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("log-${habit.id}")) {
-                        Icon(Icons.Outlined.Add, null, Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("Log")
+                    OutlinedButton(onClick = onLog, enabled = !busy,
+                        modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape).testTag("log-${habit.id}")) {
+                        Icon(Icons.Outlined.Add, null, Modifier.size(GitHabitSize.supportingIcon)); Spacer(Modifier.width(GitHabitSpace.micro)); Text("Log")
                     }
                     if (!value.complete) FilledTonalIconButton(onClick = onComplete, enabled = !busy,
-                        modifier = Modifier.size(48.dp).testTag("complete-${habit.id}")) {
-                        Icon(Icons.Outlined.Check, "Complete remaining goal for ${habit.name}", Modifier.size(20.dp))
+                        modifier = Modifier.size(GitHabitSize.minimumTouch).focusOutline(CircleShape).testTag("complete-${habit.id}")) {
+                        Icon(Icons.Outlined.Check, "Complete remaining goal for ${habit.name}", Modifier.size(GitHabitSize.supportingIcon))
                     }
-                } else OutlinedButton(onClick = onResume, enabled = !busy) { Text("Resume") }
+                } else OutlinedButton(onClick = onResume, enabled = !busy,
+                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape)) { Text("Resume") }
             }
         }
     }
@@ -226,34 +224,37 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, onDay: 
     val scores = remember(state, dates, habitId) { dates.map { state.dailyScore(it, habitId) } }
     val colors = heatColors()
     val primary = MaterialTheme.colorScheme.primary
+    val pitch = with(LocalDensity.current) { maxOf(HeatmapGeometry.minimumPitch, GitHabitType.chartLabel.lineHeight.toDp()) }
     val scroll = rememberScrollState()
     LaunchedEffect(weeks, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
     Panel(Modifier.fillMaxWidth()) {
         SectionHeading(if (habitId == null) "Your contributions" else "Your consistency")
         Subtitle("Every square is a day you showed up.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
             listOf(13 to "3 months", 26 to "6 months", 52 to "1 year").forEach { (count, label) ->
-                FilterChip(selected = weeks == count, onClick = { weeks = count }, label = { Text(label, fontSize = 11.sp) })
+                FilterChip(selected = weeks == count, onClick = { weeks = count }, label = { Text(label) },
+                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline())
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.width(27.dp).height(99.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.padding(end = GitHabitSpace.small)) {
                 listOf("", "M", "", "W", "", "F", "").forEach {
-                    Text(it, fontFamily = FontFamily.Monospace, fontSize = 9.sp, lineHeight = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(Modifier.height(pitch), contentAlignment = Alignment.Center) {
+                        Text(it, style = GitHabitType.chartLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-            Column(Modifier.horizontalScroll(scroll), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Row(Modifier.width((weeks * 14 - 3).dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(first.format(DateTimeFormatter.ofPattern("MMM yyyy")), fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+            Column(Modifier.horizontalScroll(scroll), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                Row(Modifier.width(pitch * weeks), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(first.format(DateTimeFormatter.ofPattern("MMM yyyy")), style = GitHabitType.chartLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(today.format(DateTimeFormatter.ofPattern("MMM yyyy")), fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+                    Text(today.format(DateTimeFormatter.ofPattern("MMM yyyy")), style = GitHabitType.chartLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                val cellPixels = with(LocalDensity.current) { 14.dp.toPx() }
-                Canvas(Modifier.width((weeks * 14 - 3).dp).height(95.dp)
+                val cellPixels = with(LocalDensity.current) { pitch.toPx() }
+                Canvas(Modifier.width(pitch * weeks).height(pitch * 7)
                     .semantics { contentDescription = "Contribution heatmap. Use Explore by date for accessible daily goal details." }
-                    .pointerInput(dates, today) {
+                    .pointerInput(dates, today, cellPixels) {
                         detectTapGestures { point ->
                             val column = (point.x / cellPixels).toInt()
                             val row = (point.y / cellPixels).toInt()
@@ -264,26 +265,29 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, onDay: 
                         if (day <= today) {
                             val ratio = scores[index] ?: 0.0
                             val level = if (ratio <= 0.0) 0 else if (ratio >= 1.0) 4 else ceil(ratio * 3).toInt()
-                            val position = Offset((index / 7) * 14.dp.toPx(), (index % 7) * 14.dp.toPx())
-                            drawRoundRect(colors[level], position, Size(11.dp.toPx(), 11.dp.toPx()), CornerRadius(2.dp.toPx()))
-                            if (day == today) drawRoundRect(primary, position - Offset(1.dp.toPx(), 1.dp.toPx()),
-                                Size(13.dp.toPx(), 13.dp.toPx()), CornerRadius(3.dp.toPx()), style = Stroke(1.dp.toPx()))
+                             val inset = GitHabitSize.border.toPx()
+                             val side = (pitch - HeatmapGeometry.gap).toPx()
+                             val position = Offset((index / 7) * cellPixels + inset, (index % 7) * cellPixels + inset)
+                             drawRoundRect(colors[level], position, Size(side, side), CornerRadius(HeatmapGeometry.corner.toPx()))
+                             if (day == today) drawRoundRect(primary, position - Offset(inset / 2, inset / 2),
+                                 Size(side + inset, side + inset), CornerRadius(HeatmapGeometry.gap.toPx()), style = Stroke(inset))
                         }
                     }
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onDay(today) }, contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
-                Text("Explore by date", fontSize = 11.sp)
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+            TextButton(onClick = { onDay(today) },
+                modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape)) {
+                Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(GitHabitSize.supportingIcon)); Spacer(Modifier.width(GitHabitSpace.micro))
+                Text("Explore by date")
             }
-            Spacer(Modifier.weight(1f))
-            Text("Less", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(5.dp))
-            colors.forEach { Box(Modifier.padding(1.dp).size(7.dp).clip(RoundedCornerShape(1.dp)).background(it)) }
-            Spacer(Modifier.width(5.dp))
-            Text("More", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.heightIn(min = GitHabitSize.minimumTouch), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
+                Subtitle("Less")
+                colors.forEach { Box(Modifier.size(HeatmapGeometry.legendCell).clip(RoundedCornerShape(GitHabitSize.border)).background(it)) }
+                Subtitle("More")
+            }
         }
     }
 }
@@ -291,12 +295,17 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, onDay: 
 @Composable
 fun EmptyState(title: String, description: String, onCreate: (() -> Unit)? = null) {
     Panel(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(13.dp)) {
-            Icon(Icons.Outlined.FolderOpen, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+        Column(Modifier.fillMaxWidth().padding(vertical = GitHabitSpace.large), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(GitHabitSpace.medium)) {
+            Icon(Icons.Outlined.FolderOpen, null, Modifier.size(GitHabitSize.glyph), tint = MaterialTheme.colorScheme.primary)
             Text(title, style = MaterialTheme.typography.titleMedium)
             Subtitle(description)
-            onCreate?.let { Button(onClick = it) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(5.dp)); Text("Create a repo") } }
+            onCreate?.let {
+                Button(onClick = it, modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch)
+                    .focusOutline(CircleShape, MaterialTheme.colorScheme.onPrimary)) {
+                    Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(GitHabitSpace.micro)); Text("Create a repo")
+                }
+            }
         }
     }
 }

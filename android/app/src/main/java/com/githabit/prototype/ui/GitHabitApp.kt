@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
@@ -73,16 +74,16 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                         }, style = MaterialTheme.typography.titleMedium)
                     },
                     navigationIcon = {
-                        if (vm.destination !in mainTabs) IconButton(onClick = vm::back) {
+                        if (vm.destination !in mainTabs) IconButton(onClick = vm::back, modifier = Modifier.focusOutline(CircleShape)) {
                             Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
                         }
                     },
                     actions = {
-                        if (vm.destination != Destination.ACTIVITY) IconButton(onClick = { vm.navigate(Destination.ACTIVITY) }) {
+                        if (vm.destination != Destination.ACTIVITY) IconButton(onClick = { vm.navigate(Destination.ACTIVITY) }, modifier = Modifier.focusOutline(CircleShape)) {
                             Icon(Icons.Outlined.History, "Open activity")
                         }
                         if (vm.destination != Destination.SETTINGS) IconButton(onClick = { vm.navigate(Destination.SETTINGS) },
-                            modifier = Modifier.testTag("open-settings")) {
+                            modifier = Modifier.focusOutline(CircleShape).testTag("open-settings")) {
                             Icon(Icons.Outlined.AccountCircle, "Open settings")
                         }
                     },
@@ -93,7 +94,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                 if (authenticated) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                     mainTabs.forEach { tab ->
                         NavigationBarItem(selected = vm.destination == tab || (tab == Destination.REPOS && vm.destination == Destination.DETAIL),
-                            onClick = { vm.navigate(tab, mainTab = true) }, modifier = Modifier.testTag("tab-${tab.name}"),
+                            onClick = { vm.navigate(tab, mainTab = true) }, modifier = Modifier.focusOutline().testTag("tab-${tab.name}"),
                             icon = { Icon(when (tab) {
                                 Destination.TODAY -> Icons.Outlined.Today
                                 Destination.REPOS -> Icons.Outlined.FolderOpen

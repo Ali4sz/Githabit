@@ -50,7 +50,12 @@ Keep baseline Material buttons, fields, chips, dialogs and sheets with their
 semantics, enabled state, ripple and keyboard handling. Do not remove indication or
 reduce the Material minimum interactive size. Prefer one clear dominant action,
 not an absolute one-filled-button limit. Focus must not be signalled only by a faint
-state-layer tint; shared-component focus treatment is applied in the consumer step.
+state-layer tint. `Modifier.focusOutline` adds a 2dp ring before the existing
+Material focus target: primary on surface/tonal controls, onPrimary inside filled
+primary actions. It observes the control's own focus (not a nested child's), adding
+no second focus/click/semantics target and leaving the normal ripple intact. Applied
+to shared cards/actions, chart controls and shell navigation; remaining destination-
+specific controls are audited as their screens are updated and again in Task 13.
 
 No app-owned essential animation, infinite decorative motion, custom duration-scale
 override, or mandatory transition. Material motion uses the platform duration scale;
@@ -63,8 +68,52 @@ The existing chart's immediate scroll-to-end is not an animated transition.
 4.5:1 for copy/actions/errors against all defined surfaces, all on/container pairs,
 and inverse/snackbar pairs; 3:1 for outline boundaries and habit glyph/progress inks.
 The tests also verify all six preference/system combinations and ordered chart intensity.
-This is not a complete rendered accessibility audit. Text scaling, actual focus,
-clipping, system bars, and assistive technology require separate runtime evidence.
+`ThemeRenderingTest` verifies representative actual pixels for secondary copy,
+positive badges, focused error fields and the keyboard-focused Log outline. It
+checks all theme/system combinations, startup resource resolution, and a 320dp
+shared card at 100%/200% text. See [Task 6 evidence](task6-verification.md).
+This is not a complete rendered accessibility audit or TalkBack certification.
+
+### Measured ratios (sRGB, rounded to two decimals)
+
+| Foreground/background | Light | Dark | Minimum |
+| --- | ---: | ---: | ---: |
+| onSurface / worst defined surface | 11.87 | 10.41 | 4.5 |
+| onSurfaceVariant / worst defined surface | 4.71 | 4.73 | 4.5 |
+| primary / worst defined surface | 4.83 | 7.77 | 4.5 |
+| error / worst defined surface | 4.85 | 6.16 | 4.5 |
+| outline / worst defined surface | 3.33 | 3.57 | 3.0 |
+| onPrimary / primary | 6.46 | 10.27 | 4.5 |
+| onPrimaryContainer / primaryContainer | 7.31 | 9.43 | 4.5 |
+| onSecondaryContainer / secondaryContainer | 8.56 | 8.47 | 4.5 |
+| inverseOnSurface / inverseSurface | 12.39 | 13.27 | 4.5 |
+| inversePrimary / inverseSurface | 9.24 | 5.40 | 4.5 |
+| onErrorContainer / errorContainer | 8.69 | 8.69 | 4.5 |
+| worst habit glyph / 11%-composited container | 3.67 | 4.55 | 3.0 |
+| worst habit progress / surfaceContainerHighest | 4.72 | 6.66 | 3.0 |
+
+The surface sweep includes background, surface, surfaceVariant, all five container
+levels, surfaceDim and surfaceBright. Glyph sweep additionally includes the
+selected-chip secondaryContainer. Tests also cover secondary/tertiary/error solid
+pairs, tertiaryContainer, primary on primaryContainer and primary on secondaryContainer.
+Disabled states and decorative separators are not asserted as enabled controls.
+Antialiased glyph edges are not treated as the solid foreground reference.
+
+### Consumer adoption and exceptions
+
+Shared cards/panels/stats use medium shapes and role-based text; badges use
+extraSmall/onPrimaryContainer. Compact stats stack label/value rather than squeezing
+them into one line. Habit actions are a wrapping group below the activity streak.
+The brand wordmark is one text node, and omits its redundant glyph at large text
+in compact app bars. No arbitrary fixed height is applied to text blocks.
+
+Heatmap geometry remains an intentional data-display exception, not a control size:
+pitch is max(14dp, scaled chart-label line height), gap 3dp, corner 2dp, legend cells
+7dp. Labels and chart use the same pitch; pointer mapping is refreshed when density
+changes. A 1dp inset prevents today's outline being clipped at the chart edge.
+Period/legend semantics and tiny pointer actions remain Task 11 work; this task does
+not claim the existing chart is fully accessible. Brand Canvas proportions/strokes
+and the half-size glyph icon ratio are also intentional artwork geometry.
 
 References checked for this task:
 - https://developer.android.com/develop/ui/compose/designsystems/material3
