@@ -3,6 +3,10 @@
 Work started **2026-11-08**, from `d902697`. No physical phone or personal
 workspace is used. This remains an intermediate build, not a final handoff.
 
+Subsequent, separately authorized physical-phone testing is recorded in
+[task7-phone-verification.md](task7-phone-verification.md); the evidence below
+describes the original emulator-only implementation verification.
+
 ## Local entry / fixture isolation
 
 - Removed production `SampleWorkspace` and every auth/sample entry command and UI.
