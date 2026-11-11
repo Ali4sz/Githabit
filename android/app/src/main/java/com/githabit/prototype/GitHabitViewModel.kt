@@ -9,6 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -63,6 +65,7 @@ class GitHabitViewModel(
     internal val clock: AppClock,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     tickerScope: CoroutineScope? = null,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
     private val mutation = Mutex()
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
@@ -79,7 +82,8 @@ class GitHabitViewModel(
     // even when its maintenance write failed. Reconcile only against verified snapshots.
     private var observedCalendarBoundary: LocalDate? = null
     private var calendarRefreshQueued = false
-    private var backStack = emptyList<Pair<Destination, String?>>()
+    internal var navigation by mutableStateOf(NavigationState.decode(savedStateHandle.get<Any>(NAVIGATION_STATE_KEY)))
+        private set
     val notices = noticeChannel.receiveAsFlow()
 
     var workspace by mutableStateOf(Workspace())
@@ -91,14 +95,20 @@ class GitHabitViewModel(
     private var visibleTime by mutableStateOf(clock.capture())
     val today: LocalDate get() = visibleTime.date
     val zone get() = visibleTime.zone
-    var destination by mutableStateOf(Destination.TODAY)
-        private set
-    var selectedRepoId by mutableStateOf<String?>(null)
-        private set
-    var overlay by mutableStateOf<Overlay?>(null)
+    val destination get() = navigation.route.destination
+    val selectedRepoId get() = navigation.selectedRepoId
+    val topLevelDestination get() = navigation.topLevel
+    val canGoBack get() = navigation.canGoBack
+    private var currentOverlay by mutableStateOf(decodeOverlay(savedStateHandle.get<Any>(OVERLAY_STATE_KEY)))
+    var overlay: Overlay?
+        get() = currentOverlay
+        set(value) {
+            currentOverlay = value
+            savedStateHandle[OVERLAY_STATE_KEY] = value?.encode()
+        }
     val needsWelcome: Boolean
         get() = !workspace.onboarded && workspace.habits.isEmpty() && workspace.commits.isEmpty()
-    var workspaceSession by mutableIntStateOf(0)
+    var workspaceSession by mutableIntStateOf(savedStateHandle.get<Int>(SESSION_STATE_KEY) ?: 0)
         private set
 
     constructor(application: Application) : this(
@@ -113,14 +123,16 @@ class GitHabitViewModel(
         clock: AppClock = SystemAppClock(),
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         tickerScope: CoroutineScope? = null,
-    ) : this(null, WorkspaceStore(access), clock, ioDispatcher, tickerScope)
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ) : this(null, WorkspaceStore(access), clock, ioDispatcher, tickerScope, savedStateHandle)
 
     companion object {
         /** Production factory wiring the real application, storage, and clock. */
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
-                GitHabitViewModel(app, WorkspaceStore(AtomicFileAccess(requireNotNull(app))), SystemAppClock())
+                GitHabitViewModel(app, WorkspaceStore(AtomicFileAccess(requireNotNull(app))), SystemAppClock(),
+                    savedStateHandle = createSavedStateHandle())
             }
         }
     }
@@ -186,6 +198,7 @@ class GitHabitViewModel(
                 load = WorkspaceLoad.Recovery(result.kind, result.reason, result.preserved)
             }
         }
+        if (load is WorkspaceLoad.Ready) validateNavigation()
         refreshDate()
     }
 
@@ -211,14 +224,13 @@ class GitHabitViewModel(
 
     private fun clearTransientState(clearCalendarObservation: Boolean = true) {
         workspaceSession++
+        savedStateHandle[SESSION_STATE_KEY] = workspaceSession
         undos.clear()
         uncertainUndoId = null
         uncertainOrdinaryBoundary = null
         if (clearCalendarObservation) observedCalendarBoundary = null
         overlay = null
-        backStack = emptyList()
-        destination = Destination.TODAY
-        selectedRepoId = null
+        publishNavigation(NavigationState())
     }
 
     private fun replaceWithEmpty(fromRecovery: Boolean) = replaceWorkspace(Workspace(), fromRecovery)
@@ -293,21 +305,41 @@ class GitHabitViewModel(
     }
 
     fun navigate(next: Destination, repoId: String? = null, mainTab: Boolean = false) {
+        if (load !is WorkspaceLoad.Ready) return
+        if (next == Destination.DETAIL && workspace.habits.none { it.id == repoId }) {
+            navigate(Destination.REPOS, mainTab = true)
+            return
+        }
         overlay = null
-        if (next == destination && repoId == selectedRepoId) return
-        backStack = if (mainTab) {
-            if (next == Destination.TODAY) emptyList() else listOf(Destination.TODAY to null)
-        } else backStack + (destination to selectedRepoId)
-        destination = next
-        selectedRepoId = repoId
+        publishNavigation(navigation.navigate(next, repoId, mainTab))
     }
 
     fun back() {
         if (overlay != null) { overlay = null; return }
-        val previous = backStack.lastOrNull() ?: (Destination.TODAY to null)
-        backStack = backStack.dropLast(1)
-        destination = previous.first
-        selectedRepoId = previous.second
+        if (load is WorkspaceLoad.Ready) publishNavigation(navigation.back())
+    }
+
+    /** Gesture completion may not pop a route changed/replaced while progress was collected. */
+    internal fun completeBack(expected: NavigationState) {
+        if (navigation === expected && overlay == null && load is WorkspaceLoad.Ready) back()
+    }
+
+    private fun publishNavigation(value: NavigationState) {
+        navigation = value
+        savedStateHandle[NAVIGATION_STATE_KEY] = value.encode()
+    }
+
+    private fun validateNavigation() {
+        val repoIds = workspace.habits.mapTo(mutableSetOf()) { it.id }
+        publishNavigation(navigation.validated(repoIds))
+        val valid = when (val value = overlay) {
+            is Overlay.RepoForm -> value.id == null || value.id in repoIds
+            is Overlay.LogForm -> value.habitId in repoIds && (value.commitId == null ||
+                workspace.commits.any { it.id == value.commitId && it.habitId == value.habitId })
+            is Overlay.Day -> value.habitId == null || value.habitId in repoIds
+            else -> true
+        }
+        if (!valid) overlay = null
     }
 
     private fun update(
@@ -393,6 +425,7 @@ class GitHabitViewModel(
                 // newly created request that happens to reuse the same boundary.
                 reconcileCalendarObservation()
                 load = WorkspaceLoad.Ready(isNew = false)
+                if (!replacement) validateNavigation()
                 true
             }
             WriteOutcome.RolledBack -> {
