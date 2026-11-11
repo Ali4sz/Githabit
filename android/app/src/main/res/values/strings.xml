@@ -53,4 +53,25 @@
     <string name="reset_title">Start with a clean slate?</string>
     <string name="reset_description">This replaces all local repos, commits, profile, and preferences with an empty workspace. Export first to keep an external copy. A verified preservation copy is required before replacement; external exports are not deleted.</string>
     <string name="reset_confirm">Reset everything</string>
+    <string name="repositories_title">Your repositories</string>
+    <string name="repositories_subtitle">Small projects. A bigger picture.</string>
+    <string name="create_repo">Create a new repo</string>
+    <string name="find_repository">Find a repository</string>
+    <string name="repo_filter_active">Active</string>
+    <string name="repo_filter_paused">Paused</string>
+    <string name="repo_filter_archived">Archived</string>
+    <string name="repo_filter_all">All</string>
+    <string name="no_matching_repos">No matching repos.</string>
+    <string name="no_matching_repos_description">Try another filter, or start a new intention.</string>
+    <string name="navigation_today">Today</string>
+    <string name="navigation_repos">Repos</string>
+    <string name="navigation_insights">Insights</string>
+    <string name="navigation_workspace">Your workspace</string>
+    <string name="navigation_activity">Activity</string>
+    <string name="navigation_repository">Repository</string>
+    <string name="navigation_back">Back</string>
+    <string name="open_activity">Open activity</string>
+    <string name="open_settings">Open settings</string>
+    <string name="choose_repository">Choose a repository</string>
+    <string name="choose_repository_description">Open a repo from the list to inspect its progress and history.</string>
 </resources>

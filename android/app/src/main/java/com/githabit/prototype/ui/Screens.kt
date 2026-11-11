@@ -2,6 +2,9 @@ package com.githabit.prototype.ui
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -189,36 +192,62 @@ fun TodayScreen(vm: GitHabitViewModel) {
 }
 
 @Composable
-private fun RepoCard(vm: GitHabitViewModel, habit: Habit) {
+private fun RepoCard(vm: GitHabitViewModel, habit: Habit, selected: Boolean? = null) {
     HabitCard(vm.workspace, habit, vm.today, vm.busy,
         onOpen = { vm.navigate(Destination.DETAIL, habit.id) },
         onLog = { vm.overlay = Overlay.LogForm(habit.id) },
-        onComplete = { vm.complete(habit.id) }, onResume = { vm.status(habit.id, RepoStatus.ACTIVE) })
+        onComplete = { vm.complete(habit.id) }, onResume = { vm.status(habit.id, RepoStatus.ACTIVE) }, selected = selected)
 }
 
 @Composable
 fun ReposScreen(vm: GitHabitViewModel) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        RepoListContent(vm, Modifier.widthIn(max = 720.dp).fillMaxSize())
+    }
+}
+
+@Composable
+internal fun RepoListContent(vm: GitHabitViewModel, modifier: Modifier = Modifier) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("Active") }
     val repos = vm.workspace.habits.filter {
         (filter == "All" || it.versionOn(vm.today)?.status?.name.equals(filter, ignoreCase = true)) &&
             (it.name.contains(query, true) || it.description.contains(query, true))
     }
-    PageColumn {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeading("Your repositories") { IconButton(onClick = { vm.overlay = Overlay.RepoForm() }) { Icon(Icons.Outlined.Add, "Create a new repo") } }
-            Subtitle("Small projects. A bigger picture.")
-        }
-        OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().testTag("repo-search"),
-            label = { Text("Find a repository") }, singleLine = true, leadingIcon = { Icon(Icons.Outlined.Search, null) })
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Active", "Paused", "Archived", "All").forEach { value ->
-                FilterChip(selected = value == filter, onClick = { filter = value }, label = { Text(value) })
+    LazyColumn(modifier.testTag("repo-list-pane"), state = rememberLazyListState(),
+        contentPadding = PaddingValues(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
+        verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section)) {
+        item(key = "heading") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionHeading(stringResource(R.string.repositories_title)) {
+                    IconButton(onClick = { vm.overlay = Overlay.RepoForm() }) {
+                        Icon(Icons.Outlined.Add, stringResource(R.string.create_repo))
+                    }
+                }
+                Subtitle(stringResource(R.string.repositories_subtitle))
             }
         }
-        if (repos.isEmpty()) EmptyState("No matching repos.", "Try another filter, or start a new daily intention.") { vm.overlay = Overlay.RepoForm() }
-        repos.forEach { RepoCard(vm, it) }
-        Footer()
+        item(key = "search") {
+            OutlinedTextField(query, { if (it.length <= 160) query = it }, modifier = Modifier.fillMaxWidth().testTag("repo-search"),
+                label = { Text(stringResource(R.string.find_repository)) }, singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, null) })
+        }
+        item(key = "filters") {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Active" to R.string.repo_filter_active, "Paused" to R.string.repo_filter_paused,
+                    "Archived" to R.string.repo_filter_archived, "All" to R.string.repo_filter_all).forEach { (value, label) ->
+                    FilterChip(selected = value == filter, onClick = { filter = value },
+                        modifier = Modifier.testTag("repo-filter-$value"), label = { Text(stringResource(label)) })
+                }
+            }
+        }
+        if (repos.isEmpty()) item(key = "empty") {
+            EmptyState(stringResource(R.string.no_matching_repos), stringResource(R.string.no_matching_repos_description)) {
+                vm.overlay = Overlay.RepoForm()
+            }
+        }
+        items(repos, key = { "habit:${it.id}" }) { RepoCard(vm, it, selected = it.id == vm.selectedRepoId) }
+        item(key = "footer") { Footer() }
     }
 }
 
@@ -227,11 +256,16 @@ fun DetailScreen(vm: GitHabitViewModel) {
     val state = vm.workspace
     val habit = state.habits.find { it.id == vm.selectedRepoId }
     if (habit == null) { EmptyState("This repo isn’t here.", "Return to your repositories to choose another habit."); return }
+    PageColumn(Modifier.testTag("repo-detail-pane")) { RepoDetailContent(vm, habit) }
+}
+
+@Composable
+internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) {
+    val state = vm.workspace
     val progress = state.progress(habit, vm.today)
     val status = habit.versionOn(vm.today)?.status ?: RepoStatus.ACTIVE
     var archiveConfirmation by rememberSaveable { mutableStateOf(false) }
     var limit by rememberSaveable(habit.id) { mutableIntStateOf(20) }
-    PageColumn {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HabitGlyph(habit, 48)
@@ -279,7 +313,6 @@ fun DetailScreen(vm: GitHabitViewModel) {
             Triple("Total\ncommits", "${state.commits.count { it.habitId == habit.id }}", "")))
         HistoryList(state, state.commits.filter { it.habitId == habit.id }, limit, vm.zone,
             onMore = { limit += 30 }, onEdit = { vm.overlay = Overlay.LogForm(it.habitId, it.id) })
-    }
     if (archiveConfirmation) ConfirmDialog("Close this chapter?", "Archive this repo without removing any commits. You can resume it at any time.",
         "Archive repo", onDismiss = { archiveConfirmation = false }, onConfirm = { archiveConfirmation = false; vm.status(habit.id, RepoStatus.ARCHIVED) })
 }

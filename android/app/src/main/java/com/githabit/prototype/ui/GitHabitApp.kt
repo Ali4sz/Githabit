@@ -1,6 +1,6 @@
 package com.githabit.prototype.ui
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -10,12 +10,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.Destination
 import com.githabit.prototype.GitHabitViewModel
@@ -23,19 +30,25 @@ import com.githabit.prototype.WorkspaceLoad
 import com.githabit.prototype.R
 import kotlinx.coroutines.launch
 
+internal val BackPreviewProgress = SemanticsPropertyKey<Float>("BackPreviewProgress")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GitHabitApp(vm: GitHabitViewModel) {
-    // Keep page/form saveable state outside the writable/recovery branch. A failed
-    // save may hide ordinary UI without authorizing disposal of the user's draft.
+    // Recovery hides UI, but only a verified replacement may dispose of its drafts.
     val savedState = key(vm.workspaceSession) { rememberSaveableStateHolder() }
     val sheetState = key(vm.workspaceSession, vm.overlay) { rememberSaveableStateHolder() }
+    var detailKeys by key(vm.workspaceSession) { rememberSaveable { mutableStateOf(emptyList<String>()) } }
+    LaunchedEffect(vm.navigation, savedState) {
+        val next = vm.navigation.retainedDetailKeys(detailKeys)
+        (detailKeys - next.toSet()).forEach(savedState::removeState)
+        detailKeys = next
+    }
     val dark = vm.workspace.theme.isDark(isSystemInDarkTheme())
     GitHabitSystemBars(dark)
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.notices.collect { notice ->
-            // Replace stale notices rather than queuing Undo behind an older snackbar.
             snackbar.currentSnackbarData?.dismiss()
             launch {
                 val result = snackbar.showSnackbar(notice.message, actionLabel = notice.undoId?.let { "Undo" },
@@ -44,67 +57,85 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             }
         }
     }
-    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        uri?.let(vm::export)
-    }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::export) }
     val onExport = { export.launch("githabit-${vm.today}.json") }
-    val recoveryExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        uri?.let(vm::exportRecoveryCopy)
-    }
+    val recoveryExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::exportRecoveryCopy) }
     val load = vm.load
     val recovery = load as? WorkspaceLoad.Recovery
     val workspaceOpen = load is WorkspaceLoad.Ready && !vm.needsWelcome
-    val mainTabs = listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)
-    BackHandler(enabled = vm.overlay == null && workspaceOpen && vm.destination != Destination.TODAY) { vm.back() }
+    val adaptiveInfo = currentWindowAdaptiveInfo()
+    val navigationType = if (workspaceOpen) NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptiveInfo)
+        else NavigationSuiteType.None
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    // Always compose this handler. Dialog/sheet windows retain their standard, higher-priority Back.
+    // No route/history changes occur while collecting; cancellation only resets presentation.
+    PredictiveBackHandler(enabled = workspaceOpen && vm.overlay == null && vm.canGoBack) { progress ->
+        val expected = vm.navigation
+        try {
+            progress.collect { backProgress = it.progress.coerceIn(0f, 1f) }
+            vm.completeBack(expected)
+        } finally { backProgress = 0f }
+    }
     GitHabitTheme(dark) {
-        Scaffold(
+        val mainTabs = listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)
+        val navigationItemModifiers = mainTabs.associateWith { tab -> key(tab) { Modifier.focusOutline() } }
+        NavigationSuiteScaffold(
+            modifier = Modifier.fillMaxSize().testTag(if (navigationType == NavigationSuiteType.NavigationRail) "navigation-rail" else "navigation-bar"),
+            layoutType = navigationType,
             containerColor = MaterialTheme.colorScheme.background,
-            contentWindowInsets = WindowInsets.safeDrawing,
-            snackbarHost = { SnackbarHost(snackbar) },
-            topBar = {
-                if (workspaceOpen) TopAppBar(
-                    title = {
-                        if (vm.destination in mainTabs) Brand(compact = true)
-                        else Text(when (vm.destination) {
-                            Destination.SETTINGS -> "Your workspace"
-                            Destination.ACTIVITY -> "Activity"
-                            else -> "Repository"
-                        }, style = MaterialTheme.typography.titleMedium)
-                    },
-                    navigationIcon = {
-                        if (vm.destination !in mainTabs) IconButton(onClick = vm::back, modifier = Modifier.focusOutline(CircleShape)) {
-                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
-                        }
-                    },
-                    actions = {
-                        if (vm.destination != Destination.ACTIVITY) IconButton(onClick = { vm.navigate(Destination.ACTIVITY) }, modifier = Modifier.focusOutline(CircleShape)) {
-                            Icon(Icons.Outlined.History, "Open activity")
-                        }
-                        if (vm.destination != Destination.SETTINGS) IconButton(onClick = { vm.navigate(Destination.SETTINGS) },
-                            modifier = Modifier.focusOutline(CircleShape).testTag("open-settings")) {
-                            Icon(Icons.Outlined.Settings, "Open settings")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                )
-            },
-            bottomBar = {
-                if (workspaceOpen) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                    mainTabs.forEach { tab ->
-                        NavigationBarItem(selected = vm.destination == tab || (tab == Destination.REPOS && vm.destination == Destination.DETAIL),
-                            onClick = { vm.navigate(tab, mainTab = true) }, modifier = Modifier.focusOutline().testTag("tab-${tab.name}"),
-                            icon = { Icon(when (tab) {
-                                Destination.TODAY -> Icons.Outlined.Today
-                                Destination.REPOS -> Icons.Outlined.FolderOpen
-                                else -> Icons.Outlined.BarChart
-                            }, null) },
-                            label = { Text(when (tab) { Destination.TODAY -> "Today"; Destination.REPOS -> "Repos"; else -> "Insights" }) })
-                    }
+            navigationSuiteItems = {
+                mainTabs.forEach { tab ->
+                    item(selected = vm.topLevelDestination == tab,
+                        onClick = { vm.navigate(tab, mainTab = true) },
+                        modifier = navigationItemModifiers.getValue(tab).testTag("tab-${tab.name}"),
+                        icon = { Icon(when (tab) {
+                            Destination.TODAY -> Icons.Outlined.Today
+                            Destination.REPOS -> Icons.Outlined.FolderOpen
+                            else -> Icons.Outlined.BarChart
+                        }, null) },
+                        label = { Text(stringResource(when (tab) {
+                            Destination.TODAY -> R.string.navigation_today
+                            Destination.REPOS -> R.string.navigation_repos
+                            else -> R.string.navigation_insights
+                        })) }, alwaysShowLabel = true)
                 }
             },
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
-                Box(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
+        ) {
+            Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                contentWindowInsets = WindowInsets.safeDrawing,
+                snackbarHost = { SnackbarHost(snackbar) },
+                topBar = {
+                    if (workspaceOpen) TopAppBar(
+                        title = {
+                            if (vm.destination in listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)) Brand(compact = true)
+                            else Text(stringResource(when (vm.destination) {
+                                Destination.SETTINGS -> R.string.navigation_workspace
+                                Destination.ACTIVITY -> R.string.navigation_activity
+                                else -> R.string.navigation_repository
+                            }), style = MaterialTheme.typography.titleMedium)
+                        },
+                        navigationIcon = {
+                            if (vm.destination !in listOf(Destination.TODAY, Destination.REPOS, Destination.INSIGHTS)) {
+                                IconButton(onClick = vm::back, modifier = Modifier.focusOutline(CircleShape).testTag("navigate-back")) {
+                                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.navigation_back))
+                                }
+                            }
+                        },
+                        actions = {
+                            if (vm.destination != Destination.ACTIVITY) IconButton(onClick = { vm.navigate(Destination.ACTIVITY) }, modifier = Modifier.focusOutline(CircleShape)) {
+                                Icon(Icons.Outlined.History, stringResource(R.string.open_activity))
+                            }
+                            if (vm.destination != Destination.SETTINGS) IconButton(onClick = { vm.navigate(Destination.SETTINGS) },
+                                modifier = Modifier.focusOutline(CircleShape).testTag("open-settings")) {
+                                Icon(Icons.Outlined.Settings, stringResource(R.string.open_settings))
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                    )
+                },
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
                     when {
                         load is WorkspaceLoad.Loading -> Column(Modifier.fillMaxSize().testTag("workspace-loading"),
                             verticalArrangement = Arrangement.spacedBy(GitHabitSpace.medium, Alignment.CenterVertically),
@@ -112,24 +143,29 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                             CircularProgressIndicator()
                             Text(stringResource(R.string.loading_workspace))
                         }
-                        recovery != null -> RecoveryScreen(
-                            recovery, vm.canSaveRecoveryCopy, vm.busy,
+                        recovery != null -> RecoveryScreen(recovery, vm.canSaveRecoveryCopy, vm.busy,
                             onRetry = vm::retryLoad,
                             onSaveCopy = { recoveryExport.launch("githabit-recovery-${vm.today}.json") },
-                            onStartOver = vm::startOverFromRecovery,
-                        )
+                            onStartOver = vm::startOverFromRecovery)
                         vm.needsWelcome -> WelcomeScreen(vm)
-                        else -> {
-                            savedState.SaveableStateProvider("${vm.destination}-${vm.selectedRepoId}") {
-                                Box(Modifier.fillMaxSize().testTag("page-${vm.destination.name}")) {
-                                    when (vm.destination) {
-                                        Destination.TODAY -> TodayScreen(vm)
-                                        Destination.REPOS -> ReposScreen(vm)
-                                        Destination.INSIGHTS -> InsightsScreen(vm)
-                                        Destination.DETAIL -> DetailScreen(vm)
-                                        Destination.ACTIVITY -> ActivityScreen(vm, onExport)
-                                        Destination.SETTINGS -> SettingsScreen(vm, onExport)
-                                    }
+                        else -> Box(Modifier.fillMaxSize().testTag("page-${vm.destination.name}")
+                            .semantics { this[BackPreviewProgress] = backProgress }
+                            .graphicsLayer {
+                                // Gesture-driven, nonessential feedback; no settling animation or hidden route instance.
+                                alpha = 1f - backProgress * .08f
+                                scaleX = 1f - backProgress * .02f
+                                scaleY = scaleX
+                            }) {
+                            if (vm.destination == Destination.REPOS || vm.destination == Destination.DETAIL) {
+                                RepositoryPages(vm, savedState,
+                                    allowTwoPanes = !adaptiveInfo.windowPosture.isTabletop && adaptiveInfo.windowPosture.hingeList.isEmpty())
+                            } else savedState.SaveableStateProvider(vm.destination.name) {
+                                when (vm.destination) {
+                                    Destination.TODAY -> TodayScreen(vm)
+                                    Destination.INSIGHTS -> InsightsScreen(vm)
+                                    Destination.ACTIVITY -> ActivityScreen(vm, onExport)
+                                    Destination.SETTINGS -> SettingsScreen(vm, onExport)
+                                    else -> Unit
                                 }
                             }
                         }
@@ -138,5 +174,29 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             }
         }
         if (workspaceOpen) WorkspaceSheet(vm, sheetState)
+    }
+}
+
+@Composable
+private fun RepositoryPages(vm: GitHabitViewModel, savedState: SaveableStateHolder, allowTwoPanes: Boolean) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        // These are usable-content bounds AFTER system insets, top bar and navigation.
+        val twoPanes = allowTwoPanes && maxWidth >= 900.dp && maxHeight >= 480.dp
+        val detailActive = vm.destination == Destination.DETAIL
+        Row(Modifier.widthIn(max = 1440.dp).fillMaxSize().testTag(if (twoPanes) "repos-two-pane" else "repos-single-pane")) {
+            if (twoPanes || !detailActive) Box(Modifier.weight(if (twoPanes) .42f else 1f).fillMaxHeight()) {
+                savedState.SaveableStateProvider("REPOS") { ReposScreen(vm) }
+            }
+            if (twoPanes) VerticalDivider()
+            if (twoPanes || detailActive) Box(Modifier.weight(if (twoPanes) .58f else 1f).fillMaxHeight()) {
+                if (detailActive && vm.selectedRepoId != null) savedState.SaveableStateProvider("detail:${vm.selectedRepoId}") {
+                    DetailScreen(vm)
+                } else Column(Modifier.fillMaxSize().padding(GitHabitSpace.page).testTag("repo-selection-prompt"),
+                    verticalArrangement = Arrangement.spacedBy(GitHabitSpace.medium, Alignment.CenterVertically)) {
+                    Text(stringResource(R.string.choose_repository), style = MaterialTheme.typography.titleLarge)
+                    Subtitle(stringResource(R.string.choose_repository_description))
+                }
+            }
+        }
     }
 }

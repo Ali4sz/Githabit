@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -97,8 +99,12 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
 
 @Composable
 fun PageColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
-        verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section), content = content)
+    // Readability belongs to each page/pane, not a width cap around the whole app.
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 720.dp).fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
+            verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section), content = content)
+    }
 }
 
 @Composable
@@ -162,12 +168,16 @@ fun StatsRow(values: List<Triple<String, String, String>>, modifier: Modifier = 
 
 @Composable
 fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
-    onOpen: () -> Unit, onLog: () -> Unit, onComplete: () -> Unit, onResume: () -> Unit) {
+    onOpen: () -> Unit, onLog: () -> Unit, onComplete: () -> Unit, onResume: () -> Unit,
+    selected: Boolean? = null) {
     val value = remember(state, habit, today) { state.progress(habit, today) }
     val status = habit.versionOn(today)?.status ?: RepoStatus.ACTIVE
     val color = habitColor(habit.color)
-    OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().focusOutline(MaterialTheme.shapes.medium).testTag("habit-${habit.id}"),
-        shape = MaterialTheme.shapes.medium, border = BorderStroke(GitHabitSize.border, MaterialTheme.colorScheme.outlineVariant),
+    OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().focusOutline(MaterialTheme.shapes.medium)
+        .testTag("habit-${habit.id}").semantics { if (selected != null) this.selected = selected },
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(if (selected == true) GitHabitSize.focusBorder else GitHabitSize.border,
+            if (selected == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(GitHabitSpace.large), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.large)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
