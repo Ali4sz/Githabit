@@ -255,7 +255,18 @@ private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
         modifier = Modifier.fillMaxWidth().testTag("commit-amount"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         supportingText = { Text("Partial progress counts. Decimals are welcome.") })
     if (!correcting && progress.remaining > 0) AssistChip(enabled = !vm.busy, onClick = { vm.editLogForm { it.copy(amount = editableAmount(progress.remaining)) } },
-        label = { Text("Remaining: ${formatAmount(progress.remaining)} ${habit.unit}") }, leadingIcon = { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) })
+        modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline().testTag("commit-remaining"),
+        label = { Text(stringResource(R.string.log_remaining_amount, formatAmount(progress.remaining), habit.unit)) }, leadingIcon = { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) })
+    if (!correcting) Subtitle(stringResource(R.string.log_remaining_instruction))
+    if (!correcting && day == vm.today) {
+        val index = vm.analytics
+        val daily = remember(index, habit.id, day) { index.daily(habit.id, day) }
+        if (daily.configuration?.schedule is HabitSchedule.WeeklyQuota) {
+            val weekly = remember(index, habit.id, day) { index.weekly(habit.id, day) }
+            WeekPeriodSummary(weekly.period)
+            TodayWeeklyContext(TodayHabit(habit.id, daily, weekly))
+        }
+    }
     OutlinedTextField(note, { text -> if (text.length <= 200) vm.editLogForm { it.copy(note = text) } }, label = { Text("Commit message (optional)") },
         placeholder = { Text(stringResource(R.string.commit_note_instruction)) }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().testTag("commit-note"),
         minLines = 2, maxLines = 4, supportingText = { Text("${note.length} / 200") })

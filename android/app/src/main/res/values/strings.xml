@@ -106,4 +106,39 @@
     <string name="discard_title">Discard unsaved changes?</string>
     <string name="discard_message">Your draft will be removed. Saved repos and progress will not change.</string>
     <string name="discard_action">Discard draft</string>
+    <string name="today_date">Today · %1$s</string>
+    <plurals name="today_remaining"><item quantity="one">%1$d repo with remaining scheduled work</item><item quantity="other">%1$d repos with remaining scheduled work</item></plurals>
+    <plurals name="today_activity"><item quantity="one">%1$d commit recorded today</item><item quantity="other">%1$d commits recorded today</item></plurals>
+    <string name="today_remaining_filter">Remaining</string>
+    <string name="today_explore">Explore by date</string>
+    <string name="today_history">History &amp; Insights</string>
+    <string name="today_group_scheduled">Scheduled today</string>
+    <string name="today_group_weekly">Weekly quota remaining</string>
+    <string name="today_group_practice">Partial-week practice · optional</string>
+    <string name="today_group_optional">Completed &amp; optional</string>
+    <string name="today_no_active">No active repos today</string>
+    <string name="today_no_active_description">Paused and archived repos keep their history. Open Repos to review or resume them.</string>
+    <string name="today_no_schedule">No scheduled obligations today</string>
+    <string name="today_no_schedule_description">Optional activity and unscored practice remain available. Nothing is overdue here.</string>
+    <string name="today_quota_met">Weekly quota already met</string>
+    <string name="today_due_complete">All scheduled work complete</string>
+    <string name="today_complete_description">Your records remain available. You can still log optional progress or inspect history.</string>
+    <string name="today_filtered_empty">No repos match Remaining. Turn off the filter to see completed repos and optional practice.</string>
+    <string name="today_numeric_progress">Today: %1$s / %2$s %3$s</string>
+    <string name="today_weekly_score">Target-completed days: %1$d/%2$d</string>
+    <string name="today_week_pending">Weekly quota pending · choose different dates</string>
+    <string name="today_quota_reached">Weekly quota reached · further progress is optional</string>
+    <string name="today_qualified">Today already qualifies · more logs do not add a day</string>
+    <string name="today_not_qualified">Today has not qualified · reach today’s numeric target to add one day</string>
+    <plurals name="today_practice_dates"><item quantity="one">%1$d target-completed practice date</item><item quantity="other">%1$d target-completed practice dates</item></plurals>
+    <string name="today_practice_unscored">Transitional period · unscored, not a weekly obligation</string>
+    <plurals name="today_usual_quota"><item quantity="one">Usual future weekly target: %1$d target-completed day</item><item quantity="other">Usual future weekly target: %1$d target-completed days</item></plurals>
+    <string name="today_optional_date">Not scheduled today · optional activity in the repo</string>
+    <string name="today_partial">Partial progress · today’s numeric target not yet reached</string>
+    <string name="today_no_progress">No progress recorded today</string>
+    <string name="today_log">Log</string>
+    <string name="today_complete">Complete remaining</string>
+    <string name="today_open_repo">Open repo</string>
+    <string name="log_remaining_amount">Remaining: %1$s %2$s</string>
+    <string name="log_remaining_instruction">Remaining fills today’s numeric remainder only. Review the amount, then tap Commit progress to save; it does not submit or fill a weekly quota.</string>
 </resources>

@@ -112,83 +112,7 @@ fun WelcomeScreen(vm: GitHabitViewModel) {
 
 @Composable
 fun TodayScreen(vm: GitHabitViewModel) {
-    val state = vm.workspace
-    val today = vm.today
-    if (state.habits.isEmpty()) {
-        PageColumn {
-            Text(stringResource(R.string.empty_workspace_title), style = MaterialTheme.typography.headlineMedium)
-            Subtitle(stringResource(R.string.empty_workspace_description))
-            Button(onClick = { vm.overlay = Overlay.RepoForm() }, enabled = !vm.busy,
-                modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch)
-                    .focusOutline(CircleShape, MaterialTheme.colorScheme.onPrimary).testTag("new-repo")) {
-                Text(stringResource(R.string.create_first_repo))
-            }
-            Footer()
-        }
-        return
-    }
-    var onlyRemaining by rememberSaveable { mutableStateOf(false) }
-    val active = state.habits.filter { it.versionOn(today)?.status == RepoStatus.ACTIVE }
-    val complete = active.count { state.progress(it, today).complete }
-    val visible = active.filter { !onlyRemaining || !state.progress(it, today).complete }
-    PageColumn {
-        Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
-            Eyebrow("YOUR PERSONAL CHANGELOG")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(buildAnnotatedString {
-                    append("A little better,\n")
-                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("every day.") }
-                }, modifier = Modifier.weight(1f), style = MaterialTheme.typography.displaySmall)
-                FilledTonalIconButton(onClick = { vm.overlay = Overlay.RepoForm() }, modifier = Modifier.size(50.dp).testTag("new-repo")) {
-                    Icon(Icons.Outlined.Add, "Create a new repo")
-                }
-            }
-            Subtitle(if (state.name.isBlank()) "Your personal workspace."
-                else "Welcome back, ${state.name.trim().substringBefore(' ')}. Let’s make today count.")
-        }
-        StatsRow(listOf(Triple("Goals reached\ntoday", "$complete", "/ ${active.size}"),
-            Triple("Current activity\nstreak", "${state.activityStreak(today)}", "days"),
-            Triple("Total\ncontributions", "${state.commits.size}", "")))
-        Heatmap(state, today) { vm.overlay = Overlay.Day(it) }
-        SectionHeading("Today’s repos · ${active.size}") {
-            FilterChip(selected = onlyRemaining, onClick = { onlyRemaining = !onlyRemaining }, label = { Text("To do", fontSize = 12.sp) })
-        }
-        if (visible.isEmpty()) {
-            if (active.isEmpty()) EmptyState("Your next chapter starts here.", "Create your first repo and let a small intention grow.") { vm.overlay = Overlay.RepoForm() }
-            else EmptyState("That’s a wrap for today.", "Every goal reached. Take a moment to enjoy that.")
-        }
-        visible.forEach { RepoCard(vm, it) }
-        Panel {
-            SectionHeading("Daily focus")
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Box(Modifier.size(114.dp), Alignment.Center) {
-                    CircularProgressIndicator(progress = { if (active.isEmpty()) 0f else complete.toFloat() / active.size },
-                        modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest, strokeWidth = 6.dp)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("$complete / ${active.size}", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                        Text("goals reached", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("You’re making progress.", style = MaterialTheme.typography.titleMedium)
-                    Subtitle("You don’t need a perfect day. Just one small step forward.")
-                }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Subtitle("Overall goal progress: ${((state.dailyScore(today) ?: 0.0) * 100).roundToInt()}%")
-        }
-        Panel {
-            SectionHeading("Recent commits") {
-                IconButton(onClick = { vm.navigate(Destination.ACTIVITY) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "View all activity") }
-            }
-            if (state.commits.isEmpty()) Subtitle("Your first commit is the start of something good.")
-            state.commits.sortedByDescending { it.timestamp }.take(3).forEach { commit ->
-                CommitRow(state, commit, vm.zone) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
-            }
-        }
-        Footer()
-    }
+    TodayContent(vm)
 }
 
 @Composable
@@ -196,7 +120,7 @@ private fun RepoCard(vm: GitHabitViewModel, habit: Habit, selected: Boolean? = n
     HabitCard(vm.workspace, habit, vm.today, vm.busy,
         onOpen = { vm.navigate(Destination.DETAIL, habit.id) },
         onLog = { vm.overlay = Overlay.LogForm(habit.id) },
-        onComplete = { vm.complete(habit.id) }, onResume = { vm.status(habit.id, RepoStatus.ACTIVE) }, selected = selected)
+        onComplete = { vm.complete(habit.id) }, onResume = { vm.status(habit.id, RepoStatus.ACTIVE) }, selected = selected, analytics = vm.analytics)
 }
 
 @Composable
@@ -272,7 +196,7 @@ internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) 
                 Text(habit.name, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             }
             Subtitle(habit.description)
-            ScheduleSummary(state, habit, vm.today)
+            ScheduleSummary(state, habit, vm.today, vm.analytics)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusBadge(status.name.lowercase(), status == RepoStatus.ACTIVE)
                 OutlinedButton(onClick = { vm.overlay = Overlay.RepoForm(habit.id) }) {

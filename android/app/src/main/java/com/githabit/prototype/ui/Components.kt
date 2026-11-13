@@ -52,7 +52,7 @@ internal fun WeekPeriodSummary(period: WeekPeriod) {
 }
 
 @Composable
-internal fun ScheduleSummary(state: Workspace, habit: Habit, today: LocalDate) {
+internal fun ScheduleSummary(state: Workspace, habit: Habit, today: LocalDate, analytics: ProgressAnalytics? = null) {
     val version = habit.versionOn(today) ?: return
     val schedule = version.schedule
     val target = formatAmount(version.target)
@@ -68,7 +68,8 @@ internal fun ScheduleSummary(state: Workspace, habit: Habit, today: LocalDate) {
     }
     Text(summary, Modifier.testTag("schedule-summary-${habit.id}"), style = MaterialTheme.typography.bodySmall)
     if (schedule is HabitSchedule.WeeklyQuota) {
-        val weekly = remember(state, habit.id, today) { ProgressAnalytics(state, today).weekly(habit.id, today) }
+        val index = analytics ?: remember(state, today) { ProgressAnalytics(state, today) }
+        val weekly = remember(index, habit.id, today) { index.weekly(habit.id, today) }
         WeekPeriodSummary(weekly.period)
         val quota = weekly.quota
         val assessment = if (quota != null) stringResource(when (weekly.assessment) {
@@ -211,7 +212,7 @@ fun StatsRow(values: List<Triple<String, String, String>>, modifier: Modifier = 
 @Composable
 fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
     onOpen: () -> Unit, onLog: () -> Unit, onComplete: () -> Unit, onResume: () -> Unit,
-    selected: Boolean? = null) {
+    selected: Boolean? = null, analytics: ProgressAnalytics? = null) {
     val value = remember(state, habit, today) { state.progress(habit, today) }
     val status = habit.versionOn(today)?.status ?: RepoStatus.ACTIVE
     val color = habitColor(habit.color)
@@ -233,7 +234,7 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                 Text(habit.name, style = MaterialTheme.typography.titleMedium)
                 if (habit.description.isNotEmpty()) Subtitle(habit.description)
-                ScheduleSummary(state, habit, today)
+                ScheduleSummary(state, habit, today, analytics)
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {

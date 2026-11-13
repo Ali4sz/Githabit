@@ -115,7 +115,15 @@ class GitHabitFlowTest {
         if (dismiss.fetchSemanticsNodes().isNotEmpty()) dismiss.onFirst().performClick()
     }
     private fun clickText(text: String) { dismissNotice(); compose.onNodeWithText(text).performScrollTo().performClick() }
-    private fun clickTag(tag: String) { dismissNotice(); compose.onNodeWithTag(tag).performScrollTo().performClick() }
+    private fun clickTag(tag: String) {
+        dismissNotice()
+        if (compose.onAllNodesWithTag("today-list").fetchSemanticsNodes().isNotEmpty() &&
+            compose.onAllNodesWithTag("commit-amount").fetchSemanticsNodes().isEmpty() &&
+            (tag.startsWith("habit-") || tag.startsWith("log-") || tag.startsWith("complete-"))) {
+            compose.onNodeWithTag("today-list").performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).performClick()
+        } else compose.onNodeWithTag(tag).performScrollTo().performClick()
+    }
     private fun launchFixture() = launch(WorkspaceFixtures.populated(LocalDate.now()))
 
     @Test fun onboardingFractionalProgressCompletionUndoCorrectionAndDeletion() {
