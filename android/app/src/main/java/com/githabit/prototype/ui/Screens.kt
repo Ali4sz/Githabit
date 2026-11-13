@@ -272,6 +272,7 @@ internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) 
                 Text(habit.name, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             }
             Subtitle(habit.description)
+            ScheduleSummary(state, habit, vm.today)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusBadge(status.name.lowercase(), status == RepoStatus.ACTIVE)
                 OutlinedButton(onClick = { vm.overlay = Overlay.RepoForm(habit.id) }) {

@@ -238,6 +238,8 @@ class GitHabitFlowTest {
         compose.onNodeWithTag("repo-name").performTextInput("Unsaved intention")
         closeSoftKeyboard()
         clickTag("close-sheet")
+        compose.onNodeWithText("Discard unsaved changes?").assertExists()
+        compose.onNodeWithText("Discard draft").performClick()
         assertEquals(Workspace(onboarded = true), persisted())
         screenshot("02-empty-workspace")
         compose.onNodeWithTag("open-settings").performClick()

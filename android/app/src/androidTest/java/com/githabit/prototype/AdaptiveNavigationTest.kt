@@ -194,7 +194,12 @@ class AdaptiveNavigationTest {
         waitFor("repo-name")
         compose.onNodeWithTag("repo-name").assertTextContains("Unsaved draft")
         pressBack()
-        compose.waitUntil { compose.onAllNodesWithTag("repo-name").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("Discard unsaved changes?").assertExists()
+        pressBack() // Confirmation first; the draft and route remain intact.
+        compose.onNodeWithTag("repo-name").assertTextContains("Unsaved draft")
+        pressBack()
+        compose.onNodeWithText("Discard draft").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("repo-name").fetchSemanticsNodes().isEmpty() }
         compose.runOnIdle { assertEquals(Destination.DETAIL, vm.destination) }
         compose.onNodeWithText("Archive", substring = false).performScrollTo().performClick()
         compose.onNodeWithText("Close this chapter?").assertIsDisplayed()

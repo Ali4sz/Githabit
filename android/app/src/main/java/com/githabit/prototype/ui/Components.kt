@@ -24,6 +24,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import com.githabit.prototype.R
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
@@ -33,12 +36,51 @@ import androidx.compose.ui.unit.dp
 import com.githabit.prototype.domain.*
 import java.text.DecimalFormat
 import java.time.LocalDate
+import java.time.DayOfWeek
+import java.time.format.TextStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.ceil
 
 fun formatAmount(value: Double): String = DecimalFormat("#,##0.###").format(value)
 fun dateLabel(day: LocalDate): String = day.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+
+@Composable
+internal fun WeekPeriodSummary(period: WeekPeriod) {
+    Subtitle(stringResource(if (period.kind == WeekPeriodKind.BRIDGE) R.string.schedule_bridge else R.string.schedule_period,
+        dateLabel(period.start), dateLabel(period.endExclusive.minusDays(1))))
+}
+
+@Composable
+internal fun ScheduleSummary(state: Workspace, habit: Habit, today: LocalDate) {
+    val version = habit.versionOn(today) ?: return
+    val schedule = version.schedule
+    val target = formatAmount(version.target)
+    val summary = when (schedule) {
+        HabitSchedule.Daily -> stringResource(R.string.schedule_summary_daily, target, habit.unit)
+        is HabitSchedule.SelectedWeekdays -> {
+            val start = state.calendar.effectiveWeekStart(today)
+            val names = (0..6).map { DayOfWeek.of((start.value - 1 + it) % 7 + 1) }
+                .filter { it in schedule.days }.joinToString(", ") { it.getDisplayName(TextStyle.FULL, Locale.ENGLISH) }
+            stringResource(R.string.schedule_summary_weekdays, names, target, habit.unit)
+        }
+        is HabitSchedule.WeeklyQuota -> pluralStringResource(R.plurals.schedule_summary_weekly, schedule.daysPerWeek, target, habit.unit, schedule.daysPerWeek)
+    }
+    Text(summary, Modifier.testTag("schedule-summary-${habit.id}"), style = MaterialTheme.typography.bodySmall)
+    if (schedule is HabitSchedule.WeeklyQuota) {
+        val weekly = remember(state, habit.id, today) { ProgressAnalytics(state, today).weekly(habit.id, today) }
+        WeekPeriodSummary(weekly.period)
+        val quota = weekly.quota
+        val assessment = if (quota != null) stringResource(when (weekly.assessment) {
+            WeekAssessment.ACHIEVED -> R.string.schedule_week_achieved
+            WeekAssessment.MISSED -> R.string.schedule_week_missed
+            else -> R.string.schedule_week_pending
+        }, quota.displayDays, quota.goal.daysPerWeek) else stringResource(
+            if (weekly.assessment == WeekAssessment.TRANSITIONAL) R.string.schedule_week_practice else R.string.schedule_week_inactive,
+            weekly.qualifyingDates.size)
+        Subtitle(assessment)
+    }
+}
 
 fun habitIcon(icon: HabitIcon): ImageVector = when (icon) {
     HabitIcon.BOOK -> Icons.Outlined.AutoStories
@@ -185,16 +227,17 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
                 Spacer(Modifier.weight(1f))
                 if (value.complete) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                     Icon(Icons.Outlined.CheckCircle, null, Modifier.size(GitHabitSize.supportingIcon), tint = MaterialTheme.colorScheme.primary)
-                    Text("Goal reached", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                } else StatusBadge(if (status == RepoStatus.ACTIVE) "DAILY" else status.name.lowercase())
+                    Text(stringResource(R.string.schedule_today_reached), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                } else if (status != RepoStatus.ACTIVE) StatusBadge(status.name.lowercase())
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                 Text(habit.name, style = MaterialTheme.typography.titleMedium)
                 if (habit.description.isNotEmpty()) Subtitle(habit.description)
+                ScheduleSummary(state, habit, today)
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
-                    Text("${formatAmount(value.total)} / ${formatAmount(value.target)} ${habit.unit}", style = MaterialTheme.typography.bodySmall,
+                    Text(stringResource(R.string.schedule_today_amount, formatAmount(value.total), formatAmount(value.target), habit.unit), style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("progress-${habit.id}"))
                     Text(if (value.eligible) "${((value.ratio ?: 0.0) * 100).toInt()}%" else "Not scheduled", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

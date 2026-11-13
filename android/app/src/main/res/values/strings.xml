@@ -74,4 +74,36 @@
     <string name="open_settings">Open settings</string>
     <string name="choose_repository">Choose a repository</string>
     <string name="choose_repository_description">Open a repo from the list to inspect its progress and history.</string>
+    <string name="repo_form_new">Create a repo</string>
+    <string name="repo_form_edit">Edit your repo</string>
+    <string name="repo_form_instruction">Name your habit, enter a daily target and unit, then choose when to reach it.</string>
+    <string name="schedule_label">Schedule</string>
+    <string name="schedule_daily">Daily</string>
+    <string name="schedule_weekdays">Selected weekdays</string>
+    <string name="schedule_weekly">Different days each week</string>
+    <string name="schedule_daily_instruction">Reach the daily target on every active day.</string>
+    <string name="schedule_weekday_instruction">Choose at least one weekday. Other days remain optional.</string>
+    <string name="schedule_weekly_count">Target-completed days per week</string>
+    <plurals name="schedule_day_count"><item quantity="one">%1$d day</item><item quantity="other">%1$d days</item></plurals>
+    <plurals name="schedule_weekly_instruction"><item quantity="one">Reach the daily target on %1$d day each week.</item><item quantity="other">Reach the daily target on %1$d different days each week.</item></plurals>
+    <string name="schedule_weekly_target_instruction">The daily target and unit above apply to each qualifying day. Multiple commits on one date count as one day, not extra days or a total weekly quantity.</string>
+    <string name="schedule_transition_explanation">This habit change applies on the date shown, not next week. The resulting partial week is transitional and unscored, not a success or failure. All progress and earlier expectations stay intact. Settings → Week starts on is separate and takes effect at a future boundary.</string>
+    <string name="schedule_period">Current week: %1$s – %2$s</string>
+    <string name="schedule_bridge">Calendar bridge: %1$s – %2$s. This partial period is unscored.</string>
+    <string name="form_saving">Saving… Keep this form open while storage is verified.</string>
+    <string name="commit_note_instruction">Add context about this progress, if useful.</string>
+    <string name="schedule_summary_daily">Daily · reach %1$s %2$s each active day.</string>
+    <string name="schedule_summary_weekdays">%1$s · reach %2$s %3$s on each selected day.</string>
+    <plurals name="schedule_summary_weekly"><item quantity="one">Reach %1$s %2$s on %3$d day each week.</item><item quantity="other">Reach %1$s %2$s on %3$d different days each week.</item></plurals>
+    <string name="schedule_week_pending">Target-completed days: %1$d of %2$d · pending</string>
+    <string name="schedule_week_achieved">Target-completed days: %1$d of %2$d · weekly quota reached</string>
+    <string name="schedule_week_missed">Target-completed days: %1$d of %2$d · closed week below quota</string>
+    <string name="schedule_week_practice">Completed practice dates: %1$d · transitional period, unscored. No combined weekly quota applies.</string>
+    <string name="schedule_week_inactive">No active weekly obligation in this period.</string>
+    <string name="schedule_today_amount">Today’s target amount: %1$s / %2$s %3$s</string>
+    <string name="schedule_today_reached">Today’s target amount reached</string>
+    <string name="form_save_failed">The change was not saved. Your draft is retained. Review the storage notice and try again.</string>
+    <string name="discard_title">Discard unsaved changes?</string>
+    <string name="discard_message">Your draft will be removed. Saved repos and progress will not change.</string>
+    <string name="discard_action">Discard draft</string>
 </resources>

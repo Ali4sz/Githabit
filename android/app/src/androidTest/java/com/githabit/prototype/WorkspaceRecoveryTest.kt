@@ -190,6 +190,9 @@ class WorkspaceRecoveryTest {
         scenario!!.onActivity { vm.overlay = Overlay.RepoForm() }
         waitFor("repo-name")
         compose.onNodeWithTag("repo-name").performTextInput("Keep my entered draft")
+        compose.onNodeWithTag("repo-target").performScrollTo().performTextInput("10")
+        compose.onNodeWithTag("repo-unit").performScrollTo().performTextInput("minutes")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         faults.fail = true
         compose.onNodeWithTag("save-repo").performScrollTo().performClick()
         waitFor("recovery-retry")
