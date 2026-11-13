@@ -100,11 +100,25 @@ class GitHabitViewModel(
     val topLevelDestination get() = navigation.topLevel
     val canGoBack get() = navigation.canGoBack
     private var currentOverlay by mutableStateOf(decodeOverlay(savedStateHandle.get<Any>(OVERLAY_STATE_KEY)))
+    var formState by mutableStateOf(FormState.decode(savedStateHandle.get<Any>(FORM_STATE_KEY)))
+        private set
+    var discardConfirmation by mutableStateOf(savedStateHandle.get<Boolean>(DISCARD_STATE_KEY) ?: false)
+        private set
+    var formSaveFailed by mutableStateOf(false)
+        private set
+    private var pendingFormNavigation: (() -> Unit)? = null
+    private var restoredFormEncoding: Any? = savedStateHandle.get<Any>(FORM_STATE_KEY)
     var overlay: Overlay?
         get() = currentOverlay
         set(value) {
+            if (value != currentOverlay) {
+                formSaveFailed = false
+                publishForm(null)
+                cancelDiscard()
+            }
             currentOverlay = value
             savedStateHandle[OVERLAY_STATE_KEY] = value?.encode()
+            if (load is WorkspaceLoad.Ready) ensureFormState()
         }
     val needsWelcome: Boolean
         get() = !workspace.onboarded && workspace.habits.isEmpty() && workspace.commits.isEmpty()
@@ -180,8 +194,12 @@ class GitHabitViewModel(
                 }
                 // Reconciliation is not a replay. Changed data invalidates stale inverses/routes.
                 if (load is WorkspaceLoad.Recovery) {
-                    if (workspace != result.workspace || replaced) {
+                    if (replaced) {
                         clearTransientState(clearCalendarObservation = replaced)
+                    } else if (workspace != result.workspace) {
+                        // An unrelated maintenance/status write must not discard a dirty form.
+                        undos.clear()
+                        publishNavigation(navigation.validated(result.workspace.habits.mapTo(mutableSetOf()) { it.id }))
                     } else uncertainUndoId?.takeIf { it in undos }?.let {
                         noticeChannel.trySend(Notice("The previous workspace was verified. Undo did not commit; you can retry.", it))
                     }
@@ -190,6 +208,7 @@ class GitHabitViewModel(
                 uncertainUndoId = null
                 uncertainOrdinaryBoundary = null
                 workspace = result.workspace
+                reconcileSubmittedForm()
                 reconcileCalendarObservation()
                 load = WorkspaceLoad.Ready(isNew = false)
             }
@@ -306,6 +325,10 @@ class GitHabitViewModel(
 
     fun navigate(next: Destination, repoId: String? = null, mainTab: Boolean = false) {
         if (load !is WorkspaceLoad.Ready) return
+        if (overlay != null) {
+            requestDismissForm { navigate(next, repoId, mainTab) }
+            return
+        }
         if (next == Destination.DETAIL && workspace.habits.none { it.id == repoId }) {
             navigate(Destination.REPOS, mainTab = true)
             return
@@ -315,7 +338,7 @@ class GitHabitViewModel(
     }
 
     fun back() {
-        if (overlay != null) { overlay = null; return }
+        if (overlay != null) { requestDismissForm(); return }
         if (load is WorkspaceLoad.Ready) publishNavigation(navigation.back())
     }
 
@@ -330,6 +353,11 @@ class GitHabitViewModel(
     }
 
     private fun validateNavigation() {
+        restoredFormEncoding?.let { raw ->
+            restoredFormEncoding = null
+            formState = decodeReferencedForm(raw)
+            reconcileSubmittedForm()
+        }
         val repoIds = workspace.habits.mapTo(mutableSetOf()) { it.id }
         publishNavigation(navigation.validated(repoIds))
         val valid = when (val value = overlay) {
@@ -340,6 +368,133 @@ class GitHabitViewModel(
             else -> true
         }
         if (!valid) overlay = null
+        ensureFormState()
+    }
+
+    private fun ensureFormState() {
+        if (formState?.matches(overlay) == true) return
+        val next = when (val value = overlay) {
+            is Overlay.RepoForm -> {
+                val habit = workspace.habits.find { it.id == value.id }
+                FormState.Repo(value.id, today, RepoFormValues.opening(habit, today),
+                    reviewedConfiguration = habit?.versionOn(today), reviewedEntity = habit?.let(::entityFingerprint))
+            }
+            is Overlay.LogForm -> {
+                val commit = workspace.commits.find { it.id == value.commitId }
+                FormState.Log(value.habitId, value.commitId, commit?.date ?: today,
+                    LogFormValues(commit?.amount?.let(::editableFormAmount) ?: "", commit?.note ?: ""),
+                    reviewedEntity = commit?.let(::entityFingerprint))
+            }
+            else -> null
+        }
+        publishForm(next)
+        if (next == null) cancelDiscard()
+    }
+
+    private fun publishForm(value: FormState?) {
+        val encoded = value?.encode()?.mapIndexed { index, text ->
+            // Valid v1 strings may have large surrounding whitespace. Keep these only on disk.
+            val isLegacyField = value is FormState.Repo && index in listOf(3, 4, 6, 12, 13, 15)
+            if (text.length > 4096 && isLegacyField) "\u0000reference:$index:${textFingerprint(text)}" else {
+                require(text.length <= 4096) { "Draft input is too large for saved state." }
+                if (text.startsWith('\u0000')) "\u0000literal:$text" else text
+            }
+        }
+        restoredFormEncoding = null
+        formState = value
+        savedStateHandle[FORM_STATE_KEY] = encoded
+    }
+
+    private fun legacyFormField(form: FormState, index: Int): String? = when (form) {
+        is FormState.Repo -> workspace.habits.find { it.id == form.id }?.let { habit ->
+            when (index) { 3, 12 -> habit.name; 4, 13 -> habit.description; 6, 15 -> habit.unit; else -> null }
+        }
+        is FormState.Log -> workspace.commits.find { it.id == form.commitId }?.let { commit ->
+            if (index == 5 || index == 7) commit.note else null
+        }
+    }
+
+    private fun decodeReferencedForm(raw: Any): FormState? {
+        val strings = (raw as? List<*>)?.map { it as? String ?: return null } ?: return null
+        val decoded = FormState.decode(strings.map { if (it.startsWith("\u0000literal:")) it.removePrefix("\u0000literal:") else it }) ?: return null
+        val encoded = decoded.encode()
+        val replacements = encoded.mapIndexed { index, text ->
+            if (strings[index].startsWith("\u0000reference:$index:")) {
+                val source = legacyFormField(decoded, index) ?: return null
+                val expected = strings[index].substringAfterLast(':')
+                if (textFingerprint(source) == expected) source else {
+                    formSaveFailed = true
+                    noticeChannel.trySend(Notice("An unchanged legacy field changed on disk. Your other draft inputs were retained; review the current field and save again."))
+                    if (index in listOf(3, 4, 6)) text else source
+                }
+            } else text
+        }
+        // Decode bounded tokens first, then hydrate raw legacy fields without a large Bundle.
+        return when (decoded) {
+            is FormState.Repo -> decoded.copy(
+                baseline = decoded.baseline.copy(name = replacements[3], description = replacements[4], unit = replacements[6]),
+                values = decoded.values.copy(name = replacements[12], description = replacements[13], unit = replacements[15]))
+            is FormState.Log -> decoded.copy(baseline = decoded.baseline.copy(note = replacements[5]),
+                values = decoded.values.copy(note = replacements[7]))
+        }
+    }
+
+    private fun reconcileSubmittedForm() {
+        val committed = when (val form = formState) {
+            is FormState.Repo -> form.submitted && workspace.habits.find { it.id == (form.id ?: form.creationId) }?.let {
+                form.submittedEntity != null && entityFingerprint(it) == form.submittedEntity
+            } == true
+            is FormState.Log -> form.submitted && workspace.commits.find { it.id == (form.commitId ?: form.creationId) }?.let {
+                form.submittedEntity != null && entityFingerprint(it) == form.submittedEntity
+            } == true
+            null -> false
+        }
+        if (committed) overlay = null
+    }
+
+    fun editRepoForm(edit: (RepoFormValues) -> RepoFormValues) {
+        if (!busy) (formState as? FormState.Repo)?.let { publishForm(it.copy(values = edit(it.values), submitted = false, submittedEntity = null)) }
+    }
+
+    fun editLogForm(edit: (LogFormValues) -> LogFormValues) {
+        if (!busy) (formState as? FormState.Log)?.let { publishForm(it.copy(values = edit(it.values), submitted = false, submittedEntity = null)) }
+    }
+
+    fun reviewFormDate(date: LocalDate) {
+        publishForm(when (val value = formState) {
+            is FormState.Repo -> value.copy(intendedDate = date, submitted = false, submittedEntity = null,
+                reviewedConfiguration = workspace.habits.find { it.id == value.id }?.versionOn(date),
+                reviewedEntity = workspace.habits.find { it.id == value.id }?.let(::entityFingerprint))
+            is FormState.Log -> value.copy(intendedDate = date, submitted = false, submittedEntity = null,
+                reviewedEntity = workspace.commits.find { it.id == value.commitId }?.let(::entityFingerprint))
+            null -> null
+        })
+    }
+
+    /** All user dismissals converge here; verified save/replacement uses the direct setter. */
+    fun requestDismissForm(afterDismiss: (() -> Unit)? = null) {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        if (formState?.dirty == true) {
+            if (!discardConfirmation) pendingFormNavigation = afterDismiss
+            discardConfirmation = true
+            savedStateHandle[DISCARD_STATE_KEY] = true
+        } else {
+            overlay = null
+            afterDismiss?.invoke()
+        }
+    }
+
+    fun cancelDiscard() {
+        discardConfirmation = false
+        savedStateHandle[DISCARD_STATE_KEY] = false
+        pendingFormNavigation = null
+    }
+
+    fun confirmDiscard() {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        val next = pendingFormNavigation
+        overlay = null
+        next?.invoke()
     }
 
     private fun update(
@@ -356,6 +511,7 @@ class GitHabitViewModel(
     ) {
         if (busy || load !is WorkspaceLoad.Ready) return
         busy = true
+        if (dismiss) formSaveFailed = false
         viewModelScope.launch {
             mutation.withLock {
                 try {
@@ -373,7 +529,10 @@ class GitHabitViewModel(
                     // A validated unchanged form is finished, but no-op commands still
                     // persist nothing, announce nothing, and create no undo token.
                     if (next == before) {
-                        if (before != committedBefore && !withContext(NonCancellable) { persist(before) }) return@withLock
+                        if (before != committedBefore && !withContext(NonCancellable) { persist(before) }) {
+                            if (dismiss) formSaveFailed = true
+                            return@withLock
+                        }
                         if (dismiss) overlay = null
                         try { afterUnchanged() } catch (_: Exception) {
                             noticeChannel.trySend(Notice("Your saved data is unchanged, but the screen could not be updated. Reopen it."))
@@ -395,10 +554,11 @@ class GitHabitViewModel(
                             } catch (_: Exception) {
                                 noticeChannel.trySend(Notice("Your change was saved, but the screen could not be updated. Reopen it."))
                             }
-                        }
+                        } else if (dismiss) formSaveFailed = true
                     }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
+                    if (dismiss) formSaveFailed = true
                     noticeChannel.trySend(Notice(if (error is IllegalArgumentException) error.message ?: "Check your entry."
                         else "Could not prepare your change. Please try again.",
                         retryUndoId.takeUnless { error is UndoConflict && !error.retryable }))
@@ -463,6 +623,12 @@ class GitHabitViewModel(
     private fun workspaceFingerprint(candidate: Workspace): String = MessageDigest.getInstance("SHA-256")
         .digest(WorkspaceJson.encode(candidate).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
+    private fun textFingerprint(text: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun entityFingerprint(habit: Habit): String = workspaceFingerprint(Workspace(habits = listOf(habit)))
+    private fun entityFingerprint(commit: Commit): String = textFingerprint(listOf(commit.id, commit.habitId,
+        commit.date.toString(), editableFormAmount(commit.amount), commit.note).joinToString("") { "${it.length}:$it" })
+
     private fun registerUndo(inverse: UndoRecord): String {
         val id = UUID.randomUUID().toString()
         undos[id] = inverse
@@ -482,21 +648,59 @@ class GitHabitViewModel(
         else update(after = openWorkspace) { it, _ -> it.copy(onboarded = true) }
     }
 
-    fun saveHabit(id: String?, draft: HabitDraft, intendedDate: LocalDate = today, onDateChanged: (LocalDate) -> Unit = {}) = update(
+    fun saveHabit(id: String?, draft: HabitDraft, intendedDate: LocalDate = today,
+        reviewedConfiguration: GoalVersion? = null, onConfigurationChanged: () -> Unit = {},
+        onDateChanged: (LocalDate) -> Unit = {}) {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        val form = (formState as? FormState.Repo)?.takeIf { it.id == id }
+        val creationId = form?.creationId ?: UUID.randomUUID().toString()
+        val candidate = runCatching {
+            val proposed = if (id == null) workspace.createHabit(draft, intendedDate, creationId) else workspace.editHabit(id, draft, intendedDate)
+            entityFingerprint(proposed.habits.first { it.id == (id ?: creationId) })
+        }.getOrNull()
+        form?.let { publishForm(it.copy(submitted = true, submittedEntity = candidate)) }
+        update(
         message = if (id == null) "Your new repo is ready. Start with a small commit." else "Repo updated. Keep growing.",
         dated = true, dismiss = true, intendedDate = intendedDate, onDateChanged = onDateChanged,
-    ) { it, time -> if (id == null) it.createHabit(draft, time.date) else it.editHabit(id, draft, time.date) }
+    ) { it, time ->
+        if (id != null && form?.reviewedEntity != null && it.habits.find { habit -> habit.id == id }?.let(::entityFingerprint) != form.reviewedEntity) {
+            onConfigurationChanged()
+            reviewFormDate(time.date)
+            throw IllegalArgumentException("This repo changed since the form opened. Review your draft and save again.")
+        }
+        if (id != null && reviewedConfiguration != null) {
+            val current = it.habits.find { habit -> habit.id == id }?.versionOn(time.date)
+            if (current != null && current != reviewedConfiguration) {
+                onConfigurationChanged()
+                throw IllegalArgumentException("This repo’s dated configuration changed. Review your draft and save again.")
+            }
+        }
+        if (id == null) {
+            require(it.habits.none { habit -> habit.id == creationId }) { "This repo creation already committed. Close and reopen the form." }
+            it.createHabit(draft, time.date, creationId)
+        } else it.editHabit(id, draft, time.date)
+        }
+    }
 
     fun saveCommit(habitId: String, commitId: String?, amount: Double, note: String,
         intendedDate: LocalDate = today, onDateChanged: (LocalDate) -> Unit = {}) {
-        val id = commitId ?: UUID.randomUUID().toString()
+        if (busy || load !is WorkspaceLoad.Ready) return
+        val form = (formState as? FormState.Log)?.takeIf { it.habitId == habitId && it.commitId == commitId }
+        val id = commitId ?: form?.creationId ?: UUID.randomUUID().toString()
+        val candidate = if (commitId != null) runCatching { entityFingerprint(workspace.editCommit(commitId, amount, note).commits.first { it.id == id }) }.getOrNull()
+            else runCatching { entityFingerprint(Commit(id = id, habitId = habitId, date = intendedDate, amount = positive(amount), note = note.trim(), timestamp = clock.now())) }.getOrNull()
+        form?.let { publishForm(it.copy(submitted = true, submittedEntity = candidate)) }
         update(message = if (commitId == null) "Progress committed. That’s a little win." else "Commit corrected.",
             dated = commitId == null, dismiss = true,
             intendedDate = intendedDate.takeIf { commitId == null }, onDateChanged = onDateChanged,
             undo = { before, after, time -> commitUndo(before, after, id, time) }) { it, time ->
                 if (commitId == null) it.addCommit(habitId, amount, time.date, note, id, time.instant)
-                else {
-                    require(it.commits.any { commit -> commit.id == id && commit.habitId == habitId }) { "This commit could not be found. Reopen the form." }
+                 else {
+                     require(it.commits.any { commit -> commit.id == id && commit.habitId == habitId }) { "This commit could not be found. Reopen the form." }
+                     if (form?.reviewedEntity != null && entityFingerprint(it.commits.first { commit -> commit.id == id }) != form.reviewedEntity) {
+                         reviewFormDate(form.intendedDate)
+                         throw IllegalArgumentException("This commit changed since the form opened. Review your draft and save again.")
+                     }
                     it.editCommit(id, amount, note)
                 }
             }
