@@ -54,6 +54,13 @@ data class WeekSummary(
 
 enum class TodayGroupKind { SCHEDULED, WEEKLY_REMAINING, PARTIAL_WEEK_PRACTICE, COMPLETED_OR_OPTIONAL }
 data class TodayHabit(val habitId: String, val daily: DailyProgress, val weekly: WeeklyProgress?)
+val TodayHabit.groupKind: TodayGroupKind
+    get() = when {
+        weekly?.assessment == WeekAssessment.TRANSITIONAL -> TodayGroupKind.PARTIAL_WEEK_PRACTICE
+        weekly?.assessment == WeekAssessment.PENDING -> TodayGroupKind.WEEKLY_REMAINING
+        daily.eligibility == DateEligibility.DUE && !daily.qualifies -> TodayGroupKind.SCHEDULED
+        else -> TodayGroupKind.COMPLETED_OR_OPTIONAL
+    }
 data class TodayGroup(val kind: TodayGroupKind, val habits: List<TodayHabit>) {
     val isRemaining: Boolean get() = kind == TodayGroupKind.SCHEDULED || kind == TodayGroupKind.WEEKLY_REMAINING
 }
@@ -149,13 +156,8 @@ fun ProgressAnalytics.todayGroups(): List<TodayGroup> {
         val day = daily(habit.id, today)
         if (day.configuration?.status != RepoStatus.ACTIVE) continue
         val week = if (day.configuration.schedule is HabitSchedule.WeeklyQuota) weekly(habit.id, today) else null
-        val kind = when {
-            week?.assessment == WeekAssessment.TRANSITIONAL -> TodayGroupKind.PARTIAL_WEEK_PRACTICE
-            week?.assessment == WeekAssessment.PENDING -> TodayGroupKind.WEEKLY_REMAINING
-            day.eligibility == DateEligibility.DUE && !day.qualifies -> TodayGroupKind.SCHEDULED
-            else -> TodayGroupKind.COMPLETED_OR_OPTIONAL
-        }
-        groups.getValue(kind).add(TodayHabit(habit.id, day, week))
+        val row = TodayHabit(habit.id, day, week)
+        groups.getValue(row.groupKind).add(row)
     }
     return groups.map { (kind, rows) -> TodayGroup(kind, rows.toList()) }
 }

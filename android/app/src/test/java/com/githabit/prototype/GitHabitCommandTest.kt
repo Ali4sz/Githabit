@@ -43,6 +43,115 @@ class GitHabitCommandTest {
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { models.clear(); Dispatchers.resetMain() }
 
+    private fun action(vm: GitHabitViewModel) = TodayAction(vm.workspaceSession, vm.today,
+        vm.workspace.habits.single(), vm.analytics.todayGroups().flatMap { it.habits }.single())
+
+    @Test fun todayActionsRejectMidnightAndTimezoneDateChangesBeforeExecution() = runTest(dispatcher) {
+        val access = access()
+        val vm = model(access)
+        val events = notices(vm)
+        advanceUntilIdle()
+        vm.completeToday(action(vm))
+        move("2026-11-05")
+        advanceUntilIdle()
+        assertEquals(0, access.writes)
+        assertEquals(day, vm.today)
+        assertTrue(events.single().message.contains("tap again"))
+        vm.openTodayLog(action(vm))
+        clock.zoneId = ZoneId.of("Pacific/Kiritimati")
+        advanceUntilIdle()
+        assertNull(vm.overlay)
+        assertEquals(0, access.writes)
+        vm.openTodayLog(action(vm))
+        advanceUntilIdle()
+        assertEquals(vm.today, (vm.formState as FormState.Log).intendedDate)
+        assertEquals("", (vm.formState as FormState.Log).values.amount)
+    }
+
+    @Test fun todayActionsRejectChangedProgressConfigurationAndReplacementSession() = runTest(dispatcher) {
+        val access = access()
+        val vm = model(access)
+        advanceUntilIdle()
+        val rendered = action(vm)
+        vm.saveCommit("habit", null, 4.0, "")
+        advanceUntilIdle()
+        vm.completeToday(rendered)
+        advanceUntilIdle()
+        assertEquals(1, access.writes)
+        val current = action(vm)
+        vm.saveHabit("habit", draft.copy(target = 20.0))
+        advanceUntilIdle()
+        vm.openTodayLog(current)
+        advanceUntilIdle()
+        assertNull(vm.overlay)
+        val beforeReplacement = action(vm)
+        vm.replaceWorkspace(vm.workspace)
+        advanceUntilIdle()
+        val writes = access.writes
+        vm.completeToday(beforeReplacement)
+        advanceUntilIdle()
+        assertEquals(writes, access.writes)
+    }
+
+    @Test fun todayCompleteUsesRemainderVerifiedFeedbackUndoAndSharedIndex() = runTest(dispatcher) {
+        val access = access(workspace().addCommit("habit", 4.0, day, id = "partial"))
+        val vm = model(access)
+        val events = notices(vm)
+        advanceUntilIdle()
+        val index = vm.analytics
+        assertSame(index, vm.analytics)
+        vm.setTheme(ThemePreference.LIGHT)
+        advanceUntilIdle()
+        assertSame(index, vm.analytics)
+        vm.completeToday(action(vm)); vm.completeToday(action(vm))
+        advanceUntilIdle()
+        assertNotSame(index, vm.analytics)
+        assertEquals(6.0, vm.workspace.commits.last().amount, 0.0)
+        assertEquals(1, vm.analytics.weekly("habit", day).quota!!.qualifyingDays)
+        assertTrue(events.single().message.contains("remaining target saved"))
+        vm.undo(events.single().undoId!!)
+        advanceUntilIdle()
+        assertEquals(4.0, vm.analytics.daily("habit", day).progress.total, 0.0)
+        assertEquals(0, vm.analytics.weekly("habit", day).quota!!.qualifyingDays)
+    }
+
+    @Test fun todayCompleteRollbackNeverPublishesCompletionOrUndo() = runTest(dispatcher) {
+        val access = access()
+        val vm = model(access)
+        val events = notices(vm)
+        advanceUntilIdle()
+        access.writeActions += { throw IOException("injected") }
+        vm.completeToday(action(vm))
+        advanceUntilIdle()
+        assertTrue(vm.workspace.commits.isEmpty())
+        assertTrue(events.none { it.undoId != null || it.message.contains("target saved") })
+        vm.completeToday(action(vm))
+        advanceUntilIdle()
+        assertEquals(1, vm.workspace.commits.size)
+    }
+
+    @Test fun preparedTodayLogFeedbackAndCacheRemainDateConsistentAcrossMidnight() = runTest(dispatcher) {
+        val access = access(workspace().copy(habits = workspace().habits.map { habit ->
+            habit.copy(versions = habit.versions.map { it.copy(schedule = HabitSchedule.Daily) })
+        }))
+        val vm = model(access)
+        val events = notices(vm)
+        advanceUntilIdle()
+        val intended = vm.today
+        access.writeActions += { bytes -> access.stored = bytes; move("2026-11-05"); vm.refreshDate() }
+        vm.saveCommit("habit", null, 10.0, "late", intended)
+        advanceUntilIdle()
+        assertEquals(intended, vm.workspace.commits.single().date)
+        assertEquals(day, vm.analytics.today)
+        assertEquals(0.0, vm.analytics.daily("habit", day).progress.total, 0.0)
+        assertEquals(TodayGroupKind.SCHEDULED, vm.analytics.todayGroups().single { it.habits.isNotEmpty() }.kind)
+        assertTrue(events.single().message.contains("Today’s target reached; moved out of Remaining."))
+        assertTrue(events.single().message.contains("Date: $intended"))
+        vm.undo(events.single().undoId!!)
+        advanceUntilIdle()
+        assertTrue(vm.workspace.commits.isEmpty())
+    }
+
     @Test fun midnightDuringSaveUsesCapturedDateInstantAndNotice() = runTest(dispatcher) {
         clock.instant = Instant.parse("2026-11-04T23:59:59Z")
         val captured = clock.capture()

@@ -51,6 +51,9 @@ sealed interface Overlay {
 }
 data class Notice(val message: String, val undoId: String? = null)
 
+/** Small rendered-action token; never stored in saved state or trusted as mutation input. */
+data class TodayAction(val session: Int, val date: LocalDate, val habit: Habit, val summary: TodayHabit)
+
 /** App-level storage state. Ordinary mutations are permitted only in [Ready]. */
 sealed interface WorkspaceLoad {
     data object Loading : WorkspaceLoad
@@ -95,6 +98,22 @@ class GitHabitViewModel(
     private var visibleTime by mutableStateOf(clock.capture())
     val today: LocalDate get() = visibleTime.date
     val zone get() = visibleTime.zone
+    private var analyticsWorkspace: Workspace? = null
+    private var analyticsDate: LocalDate? = null
+    private var cachedAnalytics: ProgressAnalytics? = null
+    /** One index per committed snapshot/evaluation date, also shared by cards and forms. */
+    val analytics: ProgressAnalytics
+        get() {
+            val previous = analyticsWorkspace
+            if (previous == null || previous.habits !== workspace.habits || previous.commits !== workspace.commits ||
+                previous.calendar != workspace.calendar || analyticsDate != today) {
+                cachedAnalytics = ProgressAnalytics(workspace, today)
+                analyticsWorkspace = workspace
+                analyticsDate = today
+            }
+            analyticsWorkspace = workspace
+            return requireNotNull(cachedAnalytics)
+        }
     val destination get() = navigation.route.destination
     val selectedRepoId get() = navigation.selectedRepoId
     val topLevelDestination get() = navigation.topLevel
@@ -499,9 +518,11 @@ class GitHabitViewModel(
 
     private fun update(
         message: String? = null,
+        resultMessage: (suspend (Workspace, Workspace, CommandTime) -> String)? = null,
         dated: Boolean = false,
         dismiss: Boolean = false,
         intendedDate: LocalDate? = null,
+        dateChangedMessage: ((LocalDate) -> String)? = null,
         onDateChanged: (LocalDate) -> Unit = {},
         undo: ((Workspace, Workspace, CommandTime) -> UndoRecord)? = null,
         after: () -> Unit = {},
@@ -520,7 +541,8 @@ class GitHabitViewModel(
                     observe(time)
                     if (intendedDate != null && intendedDate != time.date) {
                         onDateChanged(time.date)
-                        noticeChannel.trySend(Notice("The local date changed to ${time.date}. Review your draft and submit again; nothing was saved."))
+                        noticeChannel.trySend(Notice(dateChangedMessage?.invoke(time.date)
+                            ?: "The local date changed to ${time.date}. Review your draft and submit again; nothing was saved."))
                         return@withLock
                     }
                     val committedBefore = workspace
@@ -542,6 +564,7 @@ class GitHabitViewModel(
                     // Build the inverse before anything is written: a builder failure must
                     // not leave a persisted change behind a misleading failure notice.
                     val inverse = undo?.invoke(before, next, time)
+                    val successMessage = resultMessage?.invoke(before, next, time) ?: message
                     // Complete reconciliation/publication even if the ViewModel is cleared
                     // during blocking disk IO. Cancellation must not hide a committed result.
                     withContext(NonCancellable) {
@@ -550,7 +573,7 @@ class GitHabitViewModel(
                             val undoId = inverse?.let { registerUndo(it) }
                             try {
                                 after()
-                                message?.let { noticeChannel.trySend(Notice(if (dated) "$it Date: ${time.date}." else it, undoId)) }
+                                successMessage?.let { noticeChannel.trySend(Notice(if (dated) "$it Date: ${time.date}." else it, undoId)) }
                             } catch (_: Exception) {
                                 noticeChannel.trySend(Notice("Your change was saved, but the screen could not be updated. Reopen it."))
                             }
@@ -690,7 +713,33 @@ class GitHabitViewModel(
         val candidate = if (commitId != null) runCatching { entityFingerprint(workspace.editCommit(commitId, amount, note).commits.first { it.id == id }) }.getOrNull()
             else runCatching { entityFingerprint(Commit(id = id, habitId = habitId, date = intendedDate, amount = positive(amount), note = note.trim(), timestamp = clock.now())) }.getOrNull()
         form?.let { publishForm(it.copy(submitted = true, submittedEntity = candidate)) }
+        var preparedIndex: ProgressAnalytics? = null
+        var preparedWorkspace: Workspace? = null
         update(message = if (commitId == null) "Progress committed. That’s a little win." else "Commit corrected.",
+            resultMessage = if (commitId == null && destination == Destination.TODAY) { _, next, time ->
+                fun row(index: ProgressAnalytics): TodayHabit {
+                    val daily = index.daily(habitId, time.date)
+                    return TodayHabit(habitId, daily, if (daily.configuration?.schedule is HabitSchedule.WeeklyQuota) index.weekly(habitId, time.date) else null)
+                }
+                val previous = row(analytics)
+                val nextIndex = withContext(ioDispatcher) { ProgressAnalytics(next, time.date) }
+                preparedIndex = nextIndex
+                preparedWorkspace = next
+                val current = row(nextIndex)
+                val remainingKinds = setOf(TodayGroupKind.SCHEDULED, TodayGroupKind.WEEKLY_REMAINING)
+                val wasRemaining = previous.groupKind in remainingKinds
+                val isRemaining = current.groupKind in remainingKinds
+                val name = next.habits.first { it.id == habitId }.name
+                if (wasRemaining && !isRemaining) "Progress saved for $name. ${if (current.weekly?.quota?.remainingDays == 0) "Weekly quota" else "Today’s target"} reached; moved out of Remaining."
+                else "Progress saved for $name."
+            } else null,
+            after = {
+                preparedIndex?.takeIf { preparedWorkspace === workspace && it.today == today }?.let {
+                    cachedAnalytics = it
+                    analyticsWorkspace = workspace
+                    analyticsDate = today
+                }
+            },
             dated = commitId == null, dismiss = true,
             intendedDate = intendedDate.takeIf { commitId == null }, onDateChanged = onDateChanged,
             undo = { before, after, time -> commitUndo(before, after, id, time) }) { it, time ->
@@ -711,6 +760,56 @@ class GitHabitViewModel(
         update(message = "Daily goal reached. A little win worth keeping.", dated = true, undo = { before, after, time ->
             commitUndo(before, after, id, time)
         }) { it, time -> it.completeGoal(habitId, time.date, id, time.instant) }
+    }
+
+    private fun validateTodayAction(action: TodayAction) {
+        require(overlay == null) { "Close the open form before logging from Today. Your draft was retained." }
+        require(action.session == workspaceSession && workspace.habits.find { it.id == action.habit.id } == action.habit) {
+            "This repo changed. Review Today and tap again; nothing was saved."
+        }
+        val current = TodayHabit(action.habit.id, analytics.daily(action.habit.id, today),
+            if (action.summary.weekly != null) analytics.weekly(action.habit.id, today) else null)
+        require(current == action.summary) { "Progress or scheduling changed. Review Today and tap again; nothing was saved." }
+        require(current.daily.eligibility == DateEligibility.DUE || current.daily.eligibility == DateEligibility.WEEKLY_OPPORTUNITY) {
+            "This repo is not scheduled for quick logging today. Open the repo for optional activity."
+        }
+    }
+
+    private fun todayDateChanged(date: LocalDate) =
+        "The local date changed to $date. Review Today and tap again; nothing was saved."
+
+    /** Log opens an empty retained draft, only after the rendered date/entity are revalidated. */
+    fun openTodayLog(action: TodayAction) {
+        if (busy || load !is WorkspaceLoad.Ready) return
+        busy = true
+        viewModelScope.launch {
+            try {
+                mutation.withLock {
+                    if (load !is WorkspaceLoad.Ready) return@withLock
+                    val time = clock.capture()
+                    observe(time)
+                    if (action.date != time.date) {
+                        noticeChannel.trySend(Notice(todayDateChanged(time.date)))
+                    } else {
+                        validateTodayAction(action)
+                        overlay = Overlay.LogForm(action.habit.id)
+                    }
+                }
+            } catch (error: IllegalArgumentException) {
+                noticeChannel.trySend(Notice(requireNotNull(error.message)))
+            } finally { busy = false }
+        }
+    }
+
+    /** Quick Complete never silently moves to a date other than the one rendered. */
+    fun completeToday(action: TodayAction) {
+        val id = UUID.randomUUID().toString()
+        update(message = "Today’s remaining target saved for ${action.habit.name}.", dated = true,
+            intendedDate = action.date, dateChangedMessage = ::todayDateChanged,
+            undo = { before, after, time -> commitUndo(before, after, id, time) }) { it, time ->
+            validateTodayAction(action)
+            it.completeGoal(action.habit.id, time.date, id, time.instant)
+        }
     }
 
     fun removeCommit(id: String) = update(message = "Commit removed.", dismiss = true, undo = { before, after, time ->
