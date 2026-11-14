@@ -31,16 +31,22 @@ data class ActivityStreaks(val current: Int, val longest: Int)
 
 /**
  * One pass over a validated snapshot's commits. Only stored dates determine membership;
- * timestamps order the activity feed, not goal credit. No input collections are retained.
+ * timestamps order the activity feed, not goal credit. Query collections are immutable.
  */
 class CommitIndex(commits: List<Commit>) {
     private val byHabit: Map<String, Map<LocalDate, RecordedProgress>>
     private val dateCounts: Map<LocalDate, Int>
+    private val history: List<Commit>
+    private val habitHistory: Map<String, List<Commit>>
+    private val dateHistory: Map<LocalDate, List<Commit>>
+    private val habitDateHistory: Map<Pair<String, LocalDate>, List<Commit>>
 
     init {
         val totals = mutableMapOf<String, MutableMap<LocalDate, RecordedProgress>>()
         val counts = mutableMapOf<LocalDate, Int>()
+        val rows = ArrayList<Commit>(commits.size)
         for (commit in commits) {
+            rows.add(commit)
             require(commit.amount.isFinite() && commit.amount in 0.001..1_000_000.0) {
                 "Cannot index invalid progress."
             }
@@ -53,6 +59,26 @@ class CommitIndex(commits: List<Commit>) {
             days.mapValues { (_, value) -> value.copy(total = rounded(value.total)) }
         }
         dateCounts = counts.toMap()
+        // Stable input order breaks timestamp ties; saved dates never change the ordering.
+        history = Collections.unmodifiableList(rows.sortedByDescending { it.timestamp })
+        habitHistory = history.groupBy { it.habitId }
+        dateHistory = history.groupBy { it.date }
+        habitDateHistory = history.groupBy { it.habitId to it.date }
+    }
+
+    /** Sorted once per snapshot, not on every row/cell/recomposition. Never truncates records. */
+    fun history(habitId: String? = null, date: LocalDate? = null): List<Commit> =
+        Collections.unmodifiableList(when {
+            habitId != null && date != null -> habitDateHistory[habitId to date].orEmpty()
+            habitId != null -> habitHistory[habitId].orEmpty()
+            date != null -> dateHistory[date].orEmpty()
+            else -> history
+        })
+
+    fun storedDateBounds(habitId: String? = null): Pair<LocalDate, LocalDate>? {
+        val dates = if (habitId == null) dateCounts.keys else byHabit[habitId]?.keys.orEmpty()
+        if (dates.isEmpty()) return null
+        return dates.min() to dates.max()
     }
 
     fun recorded(habitId: String, date: LocalDate): RecordedProgress =
@@ -83,13 +109,22 @@ class CommitIndex(commits: List<Commit>) {
  * Rebuild after a correction/deletion or date refresh. Legacy UI helpers in Habits.kt
  * remain compatibility-only until schedule-aware consumers replace them.
  */
-class ProgressAnalytics(workspace: Workspace, val today: LocalDate) {
+class ProgressAnalytics(workspace: Workspace, val today: LocalDate, commitIndex: CommitIndex? = null) {
     val calendar: WeekCalendar = workspace.calendar
-    val commits = CommitIndex(workspace.commits)
+    val commits = commitIndex ?: CommitIndex(workspace.commits)
     val habits: List<Habit> = Collections.unmodifiableList(workspace.habits.map {
         it.copy(versions = Collections.unmodifiableList(it.versions.sortedBy { version -> version.date }))
     })
     private val habitsById = habits.associateBy { it.id }
+
+    fun habit(id: String): Habit = requireNotNull(habitsById[id]) { "This repo could not be found." }
+
+    /** Inspection includes retained future records, but does not credit them early. */
+    fun inspectionBounds(habitId: String? = null): Pair<LocalDate, LocalDate> {
+        val created = (if (habitId == null) habits else listOf(habit(habitId))).minOfOrNull { it.createdOn }
+        val stored = commits.storedDateBounds(habitId)
+        return minOf(today, created ?: today, stored?.first ?: today) to maxOf(today, stored?.second ?: today)
+    }
 
     fun daily(habitId: String, date: LocalDate): DailyProgress {
         val habit = requireNotNull(habitsById[habitId]) { "This repo could not be found." }
