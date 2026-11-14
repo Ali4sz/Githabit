@@ -96,7 +96,7 @@ class AdaptiveNavigationTest {
     private fun listPosition(): Float = compose.onNodeWithTag("repo-list-pane").fetchSemanticsNode()
         .config[SemanticsProperties.VerticalScrollAxisRange].value()
     private val verticalDetail = SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange) and
-        hasAnyAncestor(hasTestTag("repo-detail-pane"))
+        hasTestTag("repo-detail-pane")
     private fun detailScroll(): Float = compose.onNode(verticalDetail)
         .fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
     private fun scrollDetail() {
@@ -202,9 +202,9 @@ class AdaptiveNavigationTest {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("repo-name").fetchSemanticsNodes().isEmpty() }
         compose.runOnIdle { assertEquals(Destination.DETAIL, vm.destination) }
         compose.onNodeWithText("Archive", substring = false).performScrollTo().performClick()
-        compose.onNodeWithText("Close this chapter?").assertIsDisplayed()
+        compose.onNodeWithText("Archive this repo?").assertIsDisplayed()
         pressBack()
-        compose.onNodeWithText("Close this chapter?").assertDoesNotExist()
+        compose.onNodeWithText("Archive this repo?").assertDoesNotExist()
         compose.runOnIdle { assertEquals(Destination.DETAIL, vm.destination) }
         pressBack()
         waitFor("page-REPOS")

@@ -114,7 +114,18 @@ class GitHabitFlowTest {
         val dismiss = compose.onAllNodesWithContentDescription("Dismiss")
         if (dismiss.fetchSemanticsNodes().isNotEmpty()) dismiss.onFirst().performClick()
     }
-    private fun clickText(text: String) { dismissNotice(); compose.onNodeWithText(text).performScrollTo().performClick() }
+    private fun reveal(matcher: SemanticsMatcher) {
+        if (runCatching { compose.onNode(matcher).assertIsDisplayed() }.isSuccess) return
+        val list = listOf("date-inspector", "repo-detail-pane", "activity-history", "insights-list")
+            .firstOrNull { compose.onAllNodesWithTag(it).fetchSemanticsNodes().isNotEmpty() }
+        val formOpen = listOf("repo-name", "commit-amount").any {
+            compose.onAllNodesWithTag(it).fetchSemanticsNodes().isNotEmpty()
+        }
+        if (list != null && !formOpen)
+            compose.onNodeWithTag(list).performScrollToNode(matcher)
+        else compose.onNode(matcher).performScrollTo()
+    }
+    private fun clickText(text: String) { dismissNotice(); reveal(hasText(text)); compose.onNodeWithText(text).performClick() }
     private fun clickTag(tag: String) {
         dismissNotice()
         if (compose.onAllNodesWithTag("today-list").fetchSemanticsNodes().isNotEmpty() &&
@@ -122,7 +133,7 @@ class GitHabitFlowTest {
             (tag.startsWith("habit-") || tag.startsWith("log-") || tag.startsWith("complete-"))) {
             compose.onNodeWithTag("today-list").performScrollToNode(hasTestTag(tag))
             compose.onNodeWithTag(tag).performClick()
-        } else compose.onNodeWithTag(tag).performScrollTo().performClick()
+        } else { reveal(hasTestTag(tag)); compose.onNodeWithTag(tag).performClick() }
     }
     private fun launchFixture() = launch(WorkspaceFixtures.populated(LocalDate.now()))
 
@@ -175,12 +186,12 @@ class GitHabitFlowTest {
         clickTag("habit-${WorkspaceFixtures.READING_ID}")
         waitForTag("page-DETAIL")
         clickText("Explore by date")
-        compose.onNodeWithContentDescription("Previous day").performClick()
-        compose.onNodeWithContentDescription("Next day").performClick()
-        compose.onNodeWithContentDescription("Next day").assertIsNotEnabled()
+        clickTag("previous-day")
+        clickTag("next-day")
+        compose.onNodeWithTag("next-day").assertIsNotEnabled()
         compose.onNodeWithTag("close-sheet").performClick()
         compose.onNodeWithTag("tab-INSIGHTS").performClick()
-        compose.onNodeWithText("The bigger picture").assertIsDisplayed()
+        compose.onNodeWithText("Calendar insights").assertIsDisplayed()
         compose.onNodeWithTag("open-settings").performClick()
         clickTag("theme-LIGHT")
         awaitState { it.theme == com.githabit.prototype.domain.ThemePreference.LIGHT }
@@ -211,7 +222,7 @@ class GitHabitFlowTest {
         val edited = awaitState { it.habits.first().versionOn(LocalDate.now())?.target == 40.0 }
         assertEquals(before.dailyScore(LocalDate.now().minusDays(1)), edited.dailyScore(LocalDate.now().minusDays(1)))
         clickText("Archive")
-        compose.onNodeWithText("Archive repo").performClick()
+        compose.onAllNodesWithText("Archive", substring = false).onLast().performClick()
         awaitState { it.habits.first().versionOn(LocalDate.now())?.status == RepoStatus.ARCHIVED }
         compose.onNodeWithTag("tab-REPOS").performClick()
         clickText("Archived")

@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -37,7 +38,6 @@ import java.time.LocalDate
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
-import kotlin.math.roundToInt
 
 private fun editableAmount(value: Double): String = value.toBigDecimal().stripTrailingZeros().toPlainString()
 private fun parseAmount(text: String): Double = positive(text.trim().replace(',', '.').toDoubleOrNull() ?: Double.NaN)
@@ -46,8 +46,13 @@ private fun parseAmount(text: String): Double = positive(text.trim().replace(','
 @Composable
 fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
     val overlay = vm.overlay ?: return
-    var presentation by remember(overlay) { mutableIntStateOf(0) }
-    key(overlay, presentation) {
+    val identity = if (overlay is Overlay.Day) "day:${overlay.habitId.orEmpty()}" else overlay
+    LaunchedEffect(identity) {
+        // Inspection retains only its date/list state, not errors from a finished correction.
+        if (overlay is Overlay.Day) savedState.removeState("form")
+    }
+    var presentation by remember(identity) { mutableIntStateOf(0) }
+    key(identity, presentation) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
             confirmValueChange = { value ->
                 if (value == SheetValue.Hidden && (vm.busy || vm.formState?.dirty == true)) {
@@ -63,8 +68,10 @@ fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
             dragHandle = { BottomSheetDefaults.DragHandle(Modifier.testTag("sheet-drag-handle")) },
         ) {
             // Inside the dialog's composition/registry, not around the dialog itself.
-            savedState.SaveableStateProvider("form") {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            savedState.SaveableStateProvider(if (overlay is Overlay.Day) "day" else "form") {
+                val container = if (overlay is Overlay.Day) Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .85f)
+                    else Modifier.verticalScroll(rememberScrollState())
+                Column(Modifier.fillMaxWidth().then(container)
                     .padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Eyebrow("YOUR LOCAL WORKSPACE", Modifier.weight(1f))
@@ -296,60 +303,15 @@ private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
 }
 
 @Composable
-private fun DayDetails(vm: GitHabitViewModel, overlay: Overlay.Day) {
-    var dateText by rememberSaveable(overlay.date) { mutableStateOf(overlay.date.toString()) }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
-    val day = overlay.date
-    val state = vm.workspace
-    val score = state.dailyScore(day, overlay.habitId)
-    Text("A day in your story", style = MaterialTheme.typography.headlineMedium)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { vm.overlay = overlay.copy(date = day.minusDays(1)) }) { Icon(Icons.Outlined.ChevronLeft, "Previous day") }
-        Text(dateLabel(day), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        IconButton(onClick = { vm.overlay = overlay.copy(date = day.plusDays(1)) }, enabled = day < vm.today) { Icon(Icons.Outlined.ChevronRight, "Next day") }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(dateText, { dateText = it }, label = { Text("Date (YYYY-MM-DD)") }, singleLine = true,
-            modifier = Modifier.weight(1f).testTag("explore-date"))
-        OutlinedButton(onClick = {
-            val parsed = runCatching { LocalDate.parse(dateText) }.getOrNull()
-            if (parsed == null || parsed > vm.today) error = "Choose a valid date, no later than today."
-            else { error = null; vm.overlay = overlay.copy(date = parsed) }
-        }) { Text("Go") }
-    }
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    Text(if (score == null) "No goals scheduled" else "${(score * 100).roundToInt()}% daily goal progress", style = MaterialTheme.typography.titleMedium)
-    Subtitle("Scores average each active repo’s progress, capped at 100%. Paused and archived repos don’t count toward that day’s score.")
-    state.habits.filter { (overlay.habitId == null || it.id == overlay.habitId) && it.createdOn <= day }.forEach { habit ->
-        val value = state.progress(habit, day)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HabitGlyph(habit, 36)
-            Column(Modifier.weight(1f)) {
-                Text(habit.name, style = MaterialTheme.typography.titleMedium)
-                Subtitle("${formatAmount(value.total)} / ${formatAmount(value.target)} ${habit.unit}")
-            }
-            StatusBadge(if (value.eligible) "${((value.ratio ?: 0.0) * 100).roundToInt()}%" else "Not scheduled", value.complete)
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    SectionHeading("Commits on this day")
-    val commits = state.commits.filter { it.date == day && (overlay.habitId == null || it.habitId == overlay.habitId) }
-    if (commits.isEmpty()) Subtitle("No commits on this day. There’s always another small beginning.")
-    commits.sortedByDescending { it.timestamp }.forEach { commit ->
-        CommitRow(state, commit, vm.zone) { vm.overlay = Overlay.LogForm(commit.habitId, commit.id) }
-    }
-}
-
-@Composable
 private fun Guide(onDone: () -> Unit) {
-    Text("Small commits. Real momentum.", style = MaterialTheme.typography.headlineMedium)
+    Text(stringResource(R.string.guide_title), style = MaterialTheme.typography.headlineMedium)
     listOf(
-        "1 · Create a repo" to "A repo is a habit with a numeric daily goal, like 20 pages or 30 minutes.",
-        "2 · Commit your progress" to "Log any positive amount, or tap the checkmark to add only what remains of today’s goal.",
-        "3 · See the bigger picture" to "Each heatmap square shows that day’s goal progress. Overall squares average the active repos; excess progress never inflates the score.",
-        "4 · Keep your history" to "Correct commits, pause a repo, or archive it. Target and status changes apply from today without rewriting earlier days. Activity streaks count any day with a commit, not just completed goals.",
-    ).forEach { (title, text) -> Panel(Modifier.fillMaxWidth()) { Text(title, style = MaterialTheme.typography.titleMedium); Subtitle(text) } }
-    Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Ready for a little progress") }
+        R.string.guide_create_title to R.string.guide_create,
+        R.string.guide_log_title to R.string.guide_log,
+        R.string.guide_insights_title to R.string.guide_insights,
+        R.string.guide_history_title to R.string.guide_history,
+    ).forEach { (title, text) -> Panel(Modifier.fillMaxWidth()) { SectionHeading(stringResource(title)); Subtitle(stringResource(text)) } }
+    Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.guide_done)) }
 }
 
 @Composable

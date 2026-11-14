@@ -37,7 +37,13 @@ internal val BackPreviewProgress = SemanticsPropertyKey<Float>("BackPreviewProgr
 fun GitHabitApp(vm: GitHabitViewModel) {
     // Recovery hides UI, but only a verified replacement may dispose of its drafts.
     val savedState = key(vm.workspaceSession) { rememberSaveableStateHolder() }
-    val sheetState = key(vm.workspaceSession, vm.overlay) { rememberSaveableStateHolder() }
+    val inspection = when (val overlay = vm.overlay) {
+        is com.githabit.prototype.Overlay.Day -> overlay
+        is com.githabit.prototype.Overlay.LogForm -> overlay.returnTo
+        else -> null
+    }
+    val sheetKey = if (inspection != null) "inspection:${inspection.habitId.orEmpty()}" else vm.overlay
+    val sheetState = key(vm.workspaceSession, sheetKey) { rememberSaveableStateHolder() }
     var detailKeys by key(vm.workspaceSession) { rememberSaveable { mutableStateOf(emptyList<String>()) } }
     LaunchedEffect(vm.navigation, savedState) {
         val next = vm.navigation.retainedDetailKeys(detailKeys)

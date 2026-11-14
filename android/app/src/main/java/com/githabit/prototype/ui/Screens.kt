@@ -6,35 +6,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.githabit.prototype.*
 import com.githabit.prototype.R
 import com.githabit.prototype.data.UnreadableKind
 import com.githabit.prototype.domain.*
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-import kotlin.math.roundToInt
 
 @Composable
 fun RecoveryScreen(state: WorkspaceLoad.Recovery, canSaveCopy: Boolean, busy: Boolean,
@@ -180,175 +166,98 @@ fun DetailScreen(vm: GitHabitViewModel) {
     val state = vm.workspace
     val habit = state.habits.find { it.id == vm.selectedRepoId }
     if (habit == null) { EmptyState("This repo isn’t here.", "Return to your repositories to choose another habit."); return }
-    PageColumn(Modifier.testTag("repo-detail-pane")) { RepoDetailContent(vm, habit) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxSize().testTag("repo-detail-pane"), state = rememberLazyListState(),
+            contentPadding = PaddingValues(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
+            verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section)) {
+            item(key = "detail", contentType = "summary") {
+                Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section)) { RepoDetailContent(vm, habit) }
+            }
+            commitHistory(vm.analytics, vm.analytics.commits.history(habit.id), vm.zone) { vm.overlay = Overlay.LogForm(it.habitId, it.id) }
+        }
+    }
 }
 
 @Composable
 internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) {
     val state = vm.workspace
-    val progress = state.progress(habit, vm.today)
-    val status = habit.versionOn(vm.today)?.status ?: RepoStatus.ACTIVE
+    val analytics = vm.analytics
+    val daily = remember(analytics, habit.id) { analytics.daily(habit.id, vm.today) }
+    val progress = daily.progress
+    val status = daily.configuration?.status
     var archiveConfirmation by rememberSaveable { mutableStateOf(false) }
-    var limit by rememberSaveable(habit.id) { mutableIntStateOf(20) }
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HabitGlyph(habit, 48)
                 Text(habit.name, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             }
-            Subtitle(habit.description)
+            if (habit.description.isNotBlank()) Subtitle(habit.description)
             ScheduleSummary(state, habit, vm.today, vm.analytics)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusBadge(status.name.lowercase(), status == RepoStatus.ACTIVE)
+                StatusBadge(status?.name?.lowercase() ?: stringResource(R.string.history_before_creation), status == RepoStatus.ACTIVE)
                 OutlinedButton(onClick = { vm.overlay = Overlay.RepoForm(habit.id) }) {
-                    Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)); Text("Edit repo")
+                    Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)); Text(stringResource(R.string.history_edit_repo))
                 }
             }
         }
         Panel {
-            SectionHeading("Today’s progress")
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(formatAmount(progress.total), fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("detail-total"))
-                Text(" / ${formatAmount(progress.target)} ${habit.unit}", Modifier.padding(bottom = 7.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            LinearProgressIndicator(progress = { (progress.total / progress.target).coerceIn(0.0, 1.0).toFloat() },
-                modifier = Modifier.fillMaxWidth().height(5.dp), color = habitColor(habit.color),
+            SectionHeading(stringResource(R.string.history_today_progress))
+            Text(formatAmount(progress.total), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.testTag("detail-total"))
+            val week = remember(analytics, habit.id) { analytics.weekly(habit.id, vm.today) }
+            DailyHistorySummary(habit, daily, vm.today, week)
+            LinearProgressIndicator(progress = { (progress.ratio ?: 0.0).toFloat() },
+                modifier = Modifier.fillMaxWidth().height(GitHabitSize.progressTrack), color = habitColor(habit.color),
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest, drawStopIndicator = {})
             if (status == RepoStatus.ACTIVE) {
                 Button(onClick = { vm.overlay = Overlay.LogForm(habit.id) }, enabled = !vm.busy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(6.dp)); Text("Log progress") }
-                TextButton(onClick = { vm.complete(habit.id) }, enabled = !progress.complete && !vm.busy, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Check, null); Spacer(Modifier.width(6.dp)); Text(if (progress.complete) "Daily goal reached" else "Complete remaining goal")
+                    modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch).testTag("detail-log")) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.history_log_progress)) }
+                TextButton(onClick = { vm.complete(habit.id) }, enabled = !progress.targetReached && !vm.busy, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Check, null); Spacer(Modifier.width(6.dp)); Text(stringResource(if (progress.targetReached) R.string.schedule_today_reached else R.string.history_complete_remaining))
                 }
             } else {
-                Subtitle("Your history is safe. Resume whenever you’re ready.")
-                Button(onClick = { vm.status(habit.id, RepoStatus.ACTIVE) }, enabled = !vm.busy) { Text("Resume repo") }
+                Subtitle(stringResource(R.string.history_retained))
+                if (status != null) Button(onClick = { vm.status(habit.id, RepoStatus.ACTIVE) }, enabled = !vm.busy) { Text(stringResource(R.string.history_resume)) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (status == RepoStatus.ACTIVE) OutlinedButton(onClick = { vm.status(habit.id, RepoStatus.PAUSED) }, enabled = !vm.busy) {
-                    Icon(Icons.Outlined.Pause, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Pause")
+                    Icon(Icons.Outlined.Pause, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text(stringResource(R.string.history_pause))
                 }
-                if (status != RepoStatus.ARCHIVED) OutlinedButton(onClick = { archiveConfirmation = true }, enabled = !vm.busy) {
-                    Icon(Icons.Outlined.Archive, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Archive")
+                if (status != null && status != RepoStatus.ARCHIVED) OutlinedButton(onClick = { archiveConfirmation = true }, enabled = !vm.busy) {
+                    Icon(Icons.Outlined.Archive, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text(stringResource(R.string.history_archive))
                 }
             }
         }
-        Heatmap(state, vm.today, habit.id) { vm.overlay = Overlay.Day(it, habit.id) }
-        StatsRow(listOf(Triple("Activity\nstreak", "${state.activityStreak(vm.today, habit.id)}", "days"),
-            Triple("Longest\nstreak", "${state.longestStreak(vm.today, habit.id)}", "days"),
-            Triple("Total\ncommits", "${state.commits.count { it.habitId == habit.id }}", "")))
-        HistoryList(state, state.commits.filter { it.habitId == habit.id }, limit, vm.zone,
-            onMore = { limit += 30 }, onEdit = { vm.overlay = Overlay.LogForm(it.habitId, it.id) })
-    if (archiveConfirmation) ConfirmDialog("Close this chapter?", "Archive this repo without removing any commits. You can resume it at any time.",
-        "Archive repo", onDismiss = { archiveConfirmation = false }, onConfirm = { archiveConfirmation = false; vm.status(habit.id, RepoStatus.ARCHIVED) })
-}
-
-@Composable
-internal fun CommitRow(state: Workspace, commit: Commit, zone: ZoneId, onEdit: () -> Unit) {
-    val habit = state.habits.firstOrNull { it.id == commit.habitId } ?: return
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        HabitGlyph(habit, 32)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(habit.name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            if (commit.note.isNotBlank()) Subtitle(commit.note)
-            Text("${dateLabel(commit.date)} · ${commit.timestamp.atZone(zone).format(DateTimeFormatter.ofPattern("h:mm a"))}",
-                fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text("+${formatAmount(commit.amount)}", fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-            Text(habit.unit, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        IconButton(onClick = onEdit, modifier = Modifier.testTag("edit-commit-${commit.id}")) {
-            Icon(Icons.Outlined.Edit, "Edit ${habit.name} commit", Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun HistoryList(state: Workspace, commits: List<Commit>, limit: Int, zone: ZoneId, onMore: () -> Unit, onEdit: (Commit) -> Unit) {
-    Panel {
-        SectionHeading("Commit history") { StatusBadge("${commits.size} commits") }
-        if (commits.isEmpty()) Subtitle("No commits yet. Your story is still being written.")
-        commits.sortedByDescending { it.timestamp }.take(limit).forEachIndexed { index, commit ->
-            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            CommitRow(state, commit, zone) { onEdit(commit) }
-        }
-        if (commits.size > limit) TextButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Show more commits") }
-    }
+        Heatmap(state, vm.today, habit.id, analytics) { vm.overlay = Overlay.Day(it, habit.id) }
+        val streaks = remember(analytics, habit.id) { analytics.commits.activityStreaks(vm.today, habit.id) }
+        StatsRow(listOf(Triple(stringResource(R.string.history_activity_streak), "${streaks.current}", stringResource(R.string.history_days)),
+            Triple(stringResource(R.string.history_longest_streak), "${streaks.longest}", stringResource(R.string.history_days)),
+            Triple(stringResource(R.string.history_total_commits), "${analytics.commits.history(habit.id).size}", "")))
+        Subtitle(stringResource(R.string.history_streak_explanation))
+    if (archiveConfirmation) ConfirmDialog(stringResource(R.string.history_archive_title), stringResource(R.string.history_archive_message),
+        stringResource(R.string.history_archive), onDismiss = { archiveConfirmation = false }, onConfirm = { archiveConfirmation = false; vm.status(habit.id, RepoStatus.ARCHIVED) })
 }
 
 @Composable
 fun ActivityScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
-    var limit by rememberSaveable { mutableIntStateOf(20) }
-    PageColumn {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Your changelog", style = MaterialTheme.typography.headlineMedium)
-            Subtitle("A record of the little things that add up.")
-            OutlinedButton(onClick = onExport) { Icon(Icons.Outlined.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Export workspace") }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxSize().testTag("activity-history"), state = rememberLazyListState(),
+            contentPadding = PaddingValues(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
+            verticalArrangement = Arrangement.spacedBy(GitHabitSpace.section)) {
+            item(key = "activity-title", contentType = "heading") {
+                Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                    SectionHeading(stringResource(R.string.history_changelog))
+                    Subtitle(stringResource(R.string.history_ordering))
+                    OutlinedButton(onClick = onExport) { Text(stringResource(R.string.history_export)) }
+                }
+            }
+            commitHistory(vm.analytics, vm.analytics.commits.history(), vm.zone) { vm.overlay = Overlay.LogForm(it.habitId, it.id) }
         }
-        HistoryList(vm.workspace, vm.workspace.commits, limit, vm.zone, { limit += 30 }) { vm.overlay = Overlay.LogForm(it.habitId, it.id) }
     }
 }
 
 @Composable
 fun InsightsScreen(vm: GitHabitViewModel) {
-    val state = vm.workspace
-    val days = daysEnding(vm.today, 7)
-    val average = (state.averageProgress(days) * 100).roundToInt()
-    val commits = state.commits.filter { it.date in days }
-    val activeDays = commits.map { it.date }.distinct().size
-    val ranks = state.habits.filter { habit -> days.any { state.dailyScore(it, habit.id) != null } }
-        .map { it to state.averageProgress(days, it.id) }.sortedByDescending { it.second }
-    PageColumn {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("The bigger picture", style = MaterialTheme.typography.headlineMedium)
-            Subtitle("Progress you can see. Consistency you can feel.")
-        }
-        StatsRow(listOf(Triple("Average goal\nprogress", "$average%", ""), Triple("Days you\nshowed up", "$activeDays", "/ 7"),
-            Triple("This week’s\ncommits", "${commits.size}", "")))
-        Panel {
-            SectionHeading("A week of small wins")
-            Subtitle("Average progress across each day’s active repos")
-            Row(Modifier.fillMaxWidth().height(194.dp).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.Bottom) {
-                days.forEach { day ->
-                    val value = state.dailyScore(day)
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(7.dp, Alignment.Bottom)) {
-                        Text(if (value == null) "—" else "${(value * 100).roundToInt()}%", fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Box(Modifier.fillMaxWidth().height((maxOf(value ?: 0.0, .02) * 130).dp).clip(RoundedCornerShape(7.dp, 7.dp, 3.dp, 3.dp))
-                            .background(if (day == vm.today) MaterialTheme.colorScheme.primary else heatColors()[2]))
-                        Text(day.format(DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH)), fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-        Panel {
-            SectionHeading("Your steady habits")
-            Subtitle("Average daily goal progress this week")
-            if (ranks.isEmpty()) Subtitle("Your habits will find their rhythm here.")
-            ranks.forEach { (habit, value) ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HabitGlyph(habit, 36)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(habit.name, fontSize = 12.sp)
-                        LinearProgressIndicator(progress = { value.toFloat() }, modifier = Modifier.fillMaxWidth().height(4.dp),
-                            color = habitColor(habit.color), trackColor = MaterialTheme.colorScheme.surfaceContainerHighest, drawStopIndicator = {})
-                    }
-                    Text("${(value * 100).roundToInt()}%", fontSize = 11.sp, fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        Panel {
-            Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-            Text(if (activeDays > 0) "You made time for yourself on $activeDays of the last 7 days." else "Your first small win is waiting.",
-                style = MaterialTheme.typography.titleMedium)
-            Subtitle("Partial progress counts, too. Focus on returning, not on being perfect.")
-        }
-        Heatmap(state, vm.today) { vm.overlay = Overlay.Day(it) }
-    }
+    InsightsContent(vm)
 }
 
 @Composable

@@ -1,7 +1,6 @@
 package com.githabit.prototype.ui
 
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -30,7 +28,7 @@ import com.githabit.prototype.R
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.domain.*
@@ -40,10 +38,9 @@ import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.ceil
 
 fun formatAmount(value: Double): String = DecimalFormat("#,##0.###").format(value)
-fun dateLabel(day: LocalDate): String = day.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+fun dateLabel(day: LocalDate): String = day.format(DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM))
 
 @Composable
 internal fun WeekPeriodSummary(period: WeekPeriod) {
@@ -153,7 +150,7 @@ fun PageColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.(
 @Composable
 fun SectionHeading(title: String, trailing: @Composable (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).semantics { heading() })
         trailing?.invoke()
     }
 }
@@ -270,31 +267,33 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
 }
 
 @Composable
-fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, onDay: (LocalDate) -> Unit) {
+fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, analytics: ProgressAnalytics? = null, onDay: (LocalDate) -> Unit) {
     var weeks by rememberSaveable(habitId) { mutableIntStateOf(26) }
-    val sunday = today.minusDays((today.dayOfWeek.value % 7).toLong())
-    val first = sunday.minusWeeks((weeks - 1).toLong())
-    val dates = remember(first, weeks) { List(weeks * 7) { first.plusDays(it.toLong()) } }
-    val scores = remember(state, dates, habitId) { dates.map { state.dailyScore(it, habitId) } }
+    val index = analytics ?: remember(state, today) { ProgressAnalytics(state, today) }
+    val columns = remember(index, weeks, habitId) { index.heatmap(weeks, habitId) }
+    val first = columns.first().period.start
+    val weekday = state.calendar.effectiveWeekStart(today)
     val colors = heatColors()
     val primary = MaterialTheme.colorScheme.primary
     val pitch = with(LocalDensity.current) { maxOf(HeatmapGeometry.minimumPitch, GitHabitType.chartLabel.lineHeight.toDp()) }
     val scroll = rememberScrollState()
-    LaunchedEffect(weeks, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
+    val description = stringResource(if (habitId == null) R.string.heatmap_activity_description else R.string.heatmap_progress_description,
+        dateLabel(first), dateLabel(today))
     Panel(Modifier.fillMaxWidth()) {
-        SectionHeading(if (habitId == null) "Your contributions" else "Your consistency")
-        Subtitle("Every square is a day you showed up.")
+        SectionHeading(stringResource(if (habitId == null) R.string.heatmap_activity_title else R.string.heatmap_progress_title))
+        Subtitle(stringResource(if (habitId == null) R.string.heatmap_activity_legend else R.string.heatmap_progress_legend))
+        Subtitle(stringResource(R.string.heatmap_period_explanation))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
-            listOf(13 to "3 months", 26 to "6 months", 52 to "1 year").forEach { (count, label) ->
-                FilterChip(selected = weeks == count, onClick = { weeks = count }, label = { Text(label) },
-                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline())
+            listOf(13, 26, 52).forEach { count ->
+                FilterChip(selected = weeks == count, onClick = { weeks = count }, label = { Text(pluralStringResource(R.plurals.heatmap_period_count, count, count)) },
+                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline().testTag("heatmap-periods-$count"))
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.padding(end = GitHabitSpace.small)) {
-                listOf("", "M", "", "W", "", "F", "").forEach {
+                (0..6).map { DayOfWeek.of((weekday.value - 1 + it) % 7 + 1) }.forEach {
                     Box(Modifier.height(pitch), contentAlignment = Alignment.Center) {
-                        Text(it, style = GitHabitType.chartLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(it.getDisplayName(TextStyle.SHORT, Locale.getDefault()), style = GitHabitType.chartLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -307,40 +306,37 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, onDay: 
                 }
                 val cellPixels = with(LocalDensity.current) { pitch.toPx() }
                 Canvas(Modifier.width(pitch * weeks).height(pitch * 7)
-                    .semantics { contentDescription = "Contribution heatmap. Use Explore by date for accessible daily goal details." }
-                    .pointerInput(dates, today, cellPixels) {
-                        detectTapGestures { point ->
-                            val column = (point.x / cellPixels).toInt()
-                            val row = (point.y / cellPixels).toInt()
-                            dates.getOrNull(column * 7 + row)?.takeIf { it <= today }?.let(onDay)
-                        }
-                    }) {
-                    dates.forEachIndexed { index, day ->
+                    .testTag("heatmap-canvas").semantics { contentDescription = description }) {
+                    columns.forEachIndexed { column, period -> period.dates.forEach { cell ->
+                        val day = cell.date
                         if (day <= today) {
-                            val ratio = scores[index] ?: 0.0
-                            val level = if (ratio <= 0.0) 0 else if (ratio >= 1.0) 4 else ceil(ratio * 3).toInt()
-                             val inset = GitHabitSize.border.toPx()
-                             val side = (pitch - HeatmapGeometry.gap).toPx()
-                             val position = Offset((index / 7) * cellPixels + inset, (index % 7) * cellPixels + inset)
-                             drawRoundRect(colors[level], position, Size(side, side), CornerRadius(HeatmapGeometry.corner.toPx()))
+                              val inset = GitHabitSize.border.toPx()
+                              val side = (pitch - HeatmapGeometry.gap).toPx()
+                              val row = (day.dayOfWeek.value - weekday.value + 7) % 7
+                              val position = Offset(column * cellPixels + inset, row * cellPixels + inset)
+                              drawRoundRect(colors[cell.level], position, Size(side, side), CornerRadius(HeatmapGeometry.corner.toPx()))
+                              // Outline neutral practice/non-obligation cells without inventing failure.
+                              if (habitId != null && cell.daily?.eligibility != DateEligibility.DUE) {
+                                  drawRoundRect(primary, position, Size(side, side), CornerRadius(HeatmapGeometry.corner.toPx()), style = Stroke(inset))
+                              }
                              if (day == today) drawRoundRect(primary, position - Offset(inset / 2, inset / 2),
                                  Size(side + inset, side + inset), CornerRadius(HeatmapGeometry.gap.toPx()), style = Stroke(inset))
                         }
-                    }
+                    } }
                 }
             }
         }
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
             TextButton(onClick = { onDay(today) },
-                modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape)) {
+                modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape).testTag("heatmap-explore")) {
                 Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(GitHabitSize.supportingIcon)); Spacer(Modifier.width(GitHabitSpace.micro))
-                Text("Explore by date")
+                Text(stringResource(R.string.history_date_title))
             }
             Row(Modifier.heightIn(min = GitHabitSize.minimumTouch), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
-                Subtitle("Less")
+                Subtitle(stringResource(if (habitId == null) R.string.heatmap_zero else R.string.heatmap_zero_progress))
                 colors.forEach { Box(Modifier.size(HeatmapGeometry.legendCell).clip(RoundedCornerShape(GitHabitSize.border)).background(it)) }
-                Subtitle("More")
+                Subtitle(stringResource(if (habitId == null) R.string.heatmap_many else R.string.heatmap_complete))
             }
         }
     }
