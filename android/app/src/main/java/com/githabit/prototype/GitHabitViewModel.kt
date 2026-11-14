@@ -45,8 +45,8 @@ import kotlinx.coroutines.withContext
 enum class Destination { TODAY, REPOS, INSIGHTS, ACTIVITY, SETTINGS, DETAIL }
 sealed interface Overlay {
     data class RepoForm(val id: String? = null) : Overlay
-    data class LogForm(val habitId: String, val commitId: String? = null) : Overlay
-    data class Day(val date: LocalDate, val habitId: String? = null) : Overlay
+    data class LogForm(val habitId: String, val commitId: String? = null, val returnTo: Day? = null) : Overlay
+    data class Day(val date: LocalDate, val habitId: String? = null, val focusCommitId: String? = null) : Overlay
     data object Guide : Overlay
 }
 data class Notice(val message: String, val undoId: String? = null)
@@ -107,7 +107,8 @@ class GitHabitViewModel(
             val previous = analyticsWorkspace
             if (previous == null || previous.habits !== workspace.habits || previous.commits !== workspace.commits ||
                 previous.calendar != workspace.calendar || analyticsDate != today) {
-                cachedAnalytics = ProgressAnalytics(workspace, today)
+                cachedAnalytics = ProgressAnalytics(workspace, today,
+                    cachedAnalytics?.commits?.takeIf { previous?.commits === workspace.commits })
                 analyticsWorkspace = workspace
                 analyticsDate = today
             }
@@ -226,7 +227,9 @@ class GitHabitViewModel(
                 uncertainReplacements.clear()
                 uncertainUndoId = null
                 uncertainOrdinaryBoundary = null
+                val prepared = withContext(ioDispatcher) { ProgressAnalytics(result.workspace, today) }
                 workspace = result.workspace
+                cacheAnalytics(prepared)
                 reconcileSubmittedForm()
                 reconcileCalendarObservation()
                 load = WorkspaceLoad.Ready(isNew = false)
@@ -386,7 +389,7 @@ class GitHabitViewModel(
             is Overlay.Day -> value.habitId == null || value.habitId in repoIds
             else -> true
         }
-        if (!valid) overlay = null
+        if (!valid) finishOverlay()
         ensureFormState()
     }
 
@@ -468,7 +471,7 @@ class GitHabitViewModel(
             } == true
             null -> false
         }
-        if (committed) overlay = null
+        if (committed) finishOverlay()
     }
 
     fun editRepoForm(edit: (RepoFormValues) -> RepoFormValues) {
@@ -498,7 +501,7 @@ class GitHabitViewModel(
             discardConfirmation = true
             savedStateHandle[DISCARD_STATE_KEY] = true
         } else {
-            overlay = null
+            if (afterDismiss == null) finishOverlay() else overlay = null
             afterDismiss?.invoke()
         }
     }
@@ -512,8 +515,32 @@ class GitHabitViewModel(
     fun confirmDiscard() {
         if (busy || load !is WorkspaceLoad.Ready) return
         val next = pendingFormNavigation
-        overlay = null
+        if (next == null) finishOverlay() else overlay = null
         next?.invoke()
+    }
+
+    /** Keep precise inspection origin through correction, deletion, cancellation and recovery. */
+    private fun finishOverlay(expected: Overlay? = overlay) {
+        if (overlay != expected) return
+        val origin = (expected as? Overlay.LogForm)?.returnTo
+        overlay = origin?.takeIf { it.habitId == null || workspace.habits.any { habit -> habit.id == it.habitId } }
+    }
+
+    fun correctFromDay(commit: Commit) {
+        val origin = overlay as? Overlay.Day ?: return
+        if (busy || load !is WorkspaceLoad.Ready || commit.date != origin.date ||
+            (origin.habitId != null && origin.habitId != commit.habitId)) return
+        overlay = Overlay.LogForm(commit.habitId, commit.id, origin.copy(focusCommitId = commit.id))
+    }
+
+    fun consumeInspectionFocus(expected: Overlay.Day) {
+        if (overlay == expected) overlay = expected.copy(focusCommitId = null)
+    }
+
+    private fun cacheAnalytics(index: ProgressAnalytics) {
+        cachedAnalytics = index
+        analyticsWorkspace = workspace
+        analyticsDate = index.today
     }
 
     private fun update(
@@ -528,9 +555,11 @@ class GitHabitViewModel(
         after: () -> Unit = {},
         afterUnchanged: () -> Unit = {},
         retryUndoId: String? = null,
+        preparedAnalytics: (Workspace, CommandTime) -> ProgressAnalytics? = { _, _ -> null },
         transform: (Workspace, CommandTime) -> Workspace,
     ) {
         if (busy || load !is WorkspaceLoad.Ready) return
+        val dismissOverlay = overlay
         busy = true
         if (dismiss) formSaveFailed = false
         viewModelScope.launch {
@@ -555,7 +584,7 @@ class GitHabitViewModel(
                             if (dismiss) formSaveFailed = true
                             return@withLock
                         }
-                        if (dismiss) overlay = null
+                        if (dismiss) finishOverlay(dismissOverlay)
                         try { afterUnchanged() } catch (_: Exception) {
                             noticeChannel.trySend(Notice("Your saved data is unchanged, but the screen could not be updated. Reopen it."))
                         }
@@ -568,8 +597,8 @@ class GitHabitViewModel(
                     // Complete reconciliation/publication even if the ViewModel is cleared
                     // during blocking disk IO. Cancellation must not hide a committed result.
                     withContext(NonCancellable) {
-                        if (persist(next, retryUndoId = retryUndoId)) {
-                            if (dismiss) overlay = null
+                        if (persist(next, retryUndoId = retryUndoId, preparedAnalytics = preparedAnalytics(next, time))) {
+                            if (dismiss) finishOverlay(dismissOverlay)
                             val undoId = inverse?.let { registerUndo(it) }
                             try {
                                 after()
@@ -591,7 +620,14 @@ class GitHabitViewModel(
     }
 
     /** Write, verify, publish on success; never publish on rollback/indeterminate. */
-    private suspend fun persist(next: Workspace, replacement: Boolean = false, retryUndoId: String? = null): Boolean {
+    private suspend fun persist(next: Workspace, replacement: Boolean = false, retryUndoId: String? = null,
+        preparedAnalytics: ProgressAnalytics? = null): Boolean {
+        val previousAnalytics = cachedAnalytics
+        val previousSnapshot = analyticsWorkspace
+        val prepared = preparedAnalytics?.takeIf { it.today == today } ?: if (previousSnapshot?.habits === next.habits && previousSnapshot.commits === next.commits &&
+            previousSnapshot.calendar == next.calendar && previousAnalytics?.today == today) previousAnalytics
+        else withContext(ioDispatcher) { ProgressAnalytics(next, today,
+            previousAnalytics?.commits?.takeIf { previousSnapshot?.commits === next.commits }) }
         inFlightWorkspace = next.takeUnless { replacement }
         val (outcome, fingerprint) = try {
             withContext(ioDispatcher) {
@@ -603,6 +639,7 @@ class GitHabitViewModel(
             WriteOutcome.Committed -> {
                 if (replacement) uncertainReplacements.clear()
                 workspace = next
+                cacheAnalytics(prepared)
                 // Locked transitions now carry their own evidence. A cancellation captured
                 // before B may also finish after B; do not apply its observation to a later,
                 // newly created request that happens to reuse the same boundary.
@@ -741,6 +778,7 @@ class GitHabitViewModel(
                 }
             },
             dated = commitId == null, dismiss = true,
+            preparedAnalytics = { next, time -> preparedIndex?.takeIf { preparedWorkspace === next && it.today == time.date } },
             intendedDate = intendedDate.takeIf { commitId == null }, onDateChanged = onDateChanged,
             undo = { before, after, time -> commitUndo(before, after, id, time) }) { it, time ->
                 if (commitId == null) it.addCommit(habitId, amount, time.date, note, id, time.instant)

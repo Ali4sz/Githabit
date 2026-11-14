@@ -92,7 +92,7 @@ sealed interface FormState {
         val creationId: String = UUID.randomUUID().toString(), val submitted: Boolean = false,
         val reviewedEntity: String? = null, val submittedEntity: String? = null) : FormState {
         override val dirty get() = values != baseline
-        override fun matches(overlay: Overlay?) = overlay == Overlay.LogForm(habitId, commitId)
+        override fun matches(overlay: Overlay?) = overlay is Overlay.LogForm && overlay.habitId == habitId && overlay.commitId == commitId
         override fun encode() = listOf("log", habitId, commitId ?: "", intendedDate.toString(),
             baseline.amount, baseline.note, values.amount, values.note, creationId, submitted.toString(), reviewedEntity ?: "", submittedEntity ?: "")
     }

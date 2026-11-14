@@ -89,20 +89,24 @@ internal data class NavigationState(
 
 internal fun Overlay.encode(): ArrayList<String> = when (this) {
     is Overlay.RepoForm -> arrayListOf("repo", id.orEmpty())
-    is Overlay.LogForm -> arrayListOf("log", habitId, commitId.orEmpty())
-    is Overlay.Day -> arrayListOf("day", date.toString(), habitId.orEmpty())
+    is Overlay.LogForm -> if (returnTo == null) arrayListOf("log", habitId, commitId.orEmpty()) else
+        arrayListOf("log", habitId, commitId.orEmpty(), returnTo.date.toString(), returnTo.habitId.orEmpty(), returnTo.focusCommitId.orEmpty())
+    is Overlay.Day -> arrayListOf("day", date.toString(), habitId.orEmpty(), focusCommitId.orEmpty())
     Overlay.Guide -> arrayListOf("guide")
 }
 
 internal fun decodeOverlay(value: Any?): Overlay? {
     val values = value as? List<*> ?: return null
-    if (values.size !in 1..3 || values.any { it !is String || it.length > 128 }) return null
+    if (values.size !in 1..6 || values.any { it !is String || it.length > 128 }) return null
     fun id(index: Int) = (values[index] as String).takeIf { it.isNotEmpty() }
     return try {
         when {
             values[0] == "repo" && values.size == 2 -> Overlay.RepoForm(id(1))
             values[0] == "log" && values.size == 3 -> Overlay.LogForm(requireNotNull(id(1)), id(2))
+            values[0] == "log" && values.size == 6 -> Overlay.LogForm(requireNotNull(id(1)), requireNotNull(id(2)),
+                Overlay.Day(LocalDate.parse(values[3] as String), id(4), id(5)))
             values[0] == "day" && values.size == 3 -> Overlay.Day(LocalDate.parse(values[1] as String), id(2))
+            values[0] == "day" && values.size == 4 -> Overlay.Day(LocalDate.parse(values[1] as String), id(2), id(3))
             values[0] == "guide" && values.size == 1 -> Overlay.Guide
             else -> null
         }
