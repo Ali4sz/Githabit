@@ -1,25 +1,28 @@
-# GitHabit — native Kotlin mock-up
+# GitHabit — native Android
 
-A standalone Android prototype built with **Kotlin, Jetpack Compose, and Material 3**. GitHub-inspired charcoal surfaces, green contribution grids, and repo/commit language turn daily habits into a personal changelog. This is a native app, not a WebView; the [web prototype](../README.md) is unchanged.
+A local personal habit tracker built with **Kotlin, Jetpack Compose, and Material 3**. Repo/commit language and contribution history are intentional. This is a native app, not a WebView; the [web prototype](../README.md) is unchanged.
 
-**Current checkpoint (2026-11-06):** Task 5 command/storage work is verified, including
-[22 tests on an explicitly authorized physical phone](docs/phone-verification.md).
-This remains a sample-bearing intermediate build, not the real-data-only personal-use
-handoff. [Task 5 evidence](docs/task5-verification.md) and the
-[build plan](../.plans/githabit-android-build-plan.md) describe the completed work and remaining gates.
+**Current checkpoint (2026-11-14):** Tasks 1–11 are implemented; see
+[Task 11 evidence](docs/task11-verification.md) for exact build/test results and limits.
+The native APK is real-data-only: no demo/authentication, sample workspace, or runtime
+generator. This is still an intermediate build: restore and final accessibility/
+performance/transfer verification remain in the [build plan](../.plans/githabit-android-build-plan.md).
+Earlier [phone results](docs/phone-verification.md) do not verify Task 11; no new phone
+operation is authorized or performed for this task.
 
 ## Try it
 
-- **Installable debug APK:** [app-debug.apk](app/build/outputs/apk/debug/app-debug.apk) (~18 MB; Android 8.0/API 26 or newer).
-- **Fastest walkthrough:** launch **GitHabit**, then tap **Explore with sample habits**. A fresh workspace gets six habits and sample history.
-- **First-run flow:** choose **Continue with Google** (marked DEMO), or use made-up email/password details, then follow the three onboarding steps and create a repo.
-- **Start over:** Settings → **Reset this prototype**. Reset clears the local workspace after confirmation.
-
-**Sign-in is simulated.** There is no Google OAuth, account creation, or identity verification. Email/password inputs are neither saved nor sent. All demo users on an installation share the same local workspace; signing out does not delete it. Never enter real credentials or sensitive data.
+- **Debug APK:** [app-debug.apk](app/build/outputs/apk/debug/app-debug.apk) (Android 8.0/API 26 or newer). See the verification document for the exact audited hash.
+- **First run:** launch **GitHabit** → **Create first repo**. Enter your own name, numeric daily target and unit; choose Daily, selected weekdays, or N distinct target-completed days per calendar week. Log your actual progress from Today.
+- **No account:** one local workspace; optional profile and System/Light/Dark theme in Settings. No credentials or network access are needed.
+- **Week starts on:** Settings → Calendar & scheduling. All seven weekday choices; Monday default. Existing expectations use preserved historical periods, future-effective changes and short unscored weekly bridges.
+- **Start over:** Settings → Reset workspace, after confirmation and preservation. Existing valid records—including mixed or sample-looking legacy history—are never automatically purged.
 
 ### Screenshots
 
-Actual Android emulator captures, not design renders:
+**Historical prototype captures**, not current Task 11 evidence or shipped content.
+They use synthetic records on a test emulator. Old sign-in/onboarding screens no longer
+exist; refreshed task-specific captures and final screenshot cleanup belong to Task 14.
 
 | Screen | Preview | Screen | Preview |
 | --- | --- | --- | --- |
@@ -32,20 +35,30 @@ Actual Android emulator captures, not design renders:
 
 ## What works
 
-- **Today:** daily totals, overall contribution heatmap, remaining-goal filter, and quick completion.
-- **Repos:** search/filter habits; create and edit names, descriptions, daily targets, units, icons, and colors; pause, archive, and resume.
+- **Today:** immediately reachable logging and remaining-only completion; separate due, weekly remaining, partial-week practice and optional/completed groups. Extended charts live in Insights.
+- **Repos:** search/filter habits; create/edit the three schedules, names, descriptions, daily targets, units, icons and colors; pause, archive and resume.
 - **Repo detail:** per-habit heatmap, progress, history, and commit editing/deletion.
 - **Commits:** positive fractional amounts, optional messages, multiple logs per day, and snackbar Undo for logging, correction, deletion, completion, and status changes.
-- **Day explorer:** navigate earlier dates or enter a date to inspect goals and commits.
-- **Insights and Activity:** progress summaries and the commit history.
-- **Settings:** editable display name/bio, persistent light/dark theme, guide, JSON export, sign-out, and confirmed reset.
-- **Native behavior:** system back navigation, keyboard-aware forms, system insets, Android document picker, and retained tab state while navigating.
+- **Date explorer:** exact daily eligibility/amounts, weekly quota/practice context, and retained future records without early credit; returns to the inspected date after correction/deletion/cancellation.
+- **Insights and Activity:** resolved calendar periods, separate day/week adherence, recorded-activity graph and lazy timestamp-ordered history.
+- **Settings:** optional display name/bio, System/Light/Dark theme, dated week-start preference, guide, JSON export and confirmed reset. Restore UI is not implemented yet.
+- **Native behavior:** adaptive bar/rail and list/detail, saved routes/drafts/scroll, system Back and predictive route gestures, keyboard-aware forms and document picker. Full accessibility/platform coverage remains unverified.
 
 ### Tracking rules
 
-A repo is a habit with a numeric daily goal. A commit records an amount toward it. Quick completion adds **only the remaining amount**, not another full target. You can log beyond the target, but each repo's score caps at 100%; overall scores average the repos active on that date. A day with no scheduled repos has no score.
+A repo has a numeric daily target and a schedule. A commit records an amount toward
+that date's target. Quick completion adds **only the remaining amount**, not another
+full target. Actual amounts are uncapped; visual daily-target ratios cap at 100%.
+Weekly N counts distinct dates reaching their daily target, not commits or total
+weekly quantity. Partial and optional activity is retained. Overview chart intensity
+counts recorded commits, not an average success score; day/week adherence is separate.
 
-Target and status changes take effect today; earlier days retain their historical goals/status. Units are locked after the first commit. Activity streaks count days with any commit, not only days with fully completed goals. New commits use today’s local date; existing historical commits can be corrected or deleted, but the UI does not create backdated entries.
+Habit target/schedule/status changes take effect today; earlier expectations remain.
+Weekly periods with substantive midperiod changes are unscored practice; no prorating
+or carryover. Week-start edits instead apply at future boundaries, preserving existing
+periods. Units are locked after the first commit. Activity streaks count dates with
+any commit, not schedule adherence. New logs use today; existing historical/future
+records can be corrected or deleted without rewriting their stored dates.
 
 ## Open in Android Studio
 
@@ -80,19 +93,17 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 ./gradlew :app:assembleDebug
 ```
 
-The output is `app/build/outputs/apk/debug/app-debug.apk`. It is signed with a **debug key**, suitable for trying the mock-up, not production distribution. On Windows use `gradlew.bat` and configure your SDK path via Android Studio or `ANDROID_HOME`.
+The output is `app/build/outputs/apk/debug/app-debug.apk`, signed with a **debug key**,
+not a production distribution key. On Windows use `gradlew.bat`. Preserve the signing
+key for ordinary installed-data updates; do not uninstall a personal installation to
+bypass a signing mismatch. Restore is still pending.
 
-With an emulator running or a USB-debugging-enabled device connected:
-
-```bash
-./gradlew :app:installDebug
-"$ANDROID_HOME/platform-tools/adb" shell am start -n com.githabit.prototype/.MainActivity
-```
-
-To install the already-built APK instead:
+Only on an explicitly selected installation you intend to update:
 
 ```bash
-"$ANDROID_HOME/platform-tools/adb" install -r app/build/outputs/apk/debug/app-debug.apk
+SERIAL=your-explicitly-selected-serial
+"$ANDROID_HOME/platform-tools/adb" -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+"$ANDROID_HOME/platform-tools/adb" -s "$SERIAL" shell am start -n com.githabit.prototype/.MainActivity
 ```
 
 Package ID: `com.githabit.prototype`. The APK is a generated, ignored build artifact; rebuild it if it is absent from a source-only copy.
@@ -144,22 +155,44 @@ older Android releases, landscape/tablet layouts, and a full accessibility audit
 All app sources below are relative to `app/src/main/java/com/githabit/prototype/`:
 
 - `MainActivity.kt` — activity entry point, Compose content, and date refresh on resume.
-- `GitHabitViewModel.kt` — navigation/overlays, serialized workspace mutations, persistence coordination, Undo, demo sign-in, reset, and export.
-- `domain/Habits.kt` — immutable models, validation, historical goal/status versions, tracking calculations, and sample data.
+- `GitHabitViewModel.kt` — navigation/overlays/drafts, clock, serialized verified commands, analytics cache, Undo, reset and export.
+- `domain/Habits.kt`, `Schedules.kt`, `WeekCalendar.kt`, `ProgressAnalytics.kt`, `WeeklyAnalytics.kt`, `HeatmapQueries.kt` — immutable models, historical expectations/periods, schedule analytics and indexed chart/history queries.
 - `data/WorkspaceJson.kt` — versioned, validated JSON serialization.
 - `data/WorkspaceStore.kt` — app-private atomic-file persistence.
 - `ui/GitHabitApp.kt` — scaffold, tab-state retention, back handling, system bars, snackbars, and document picker.
-- `ui/Screens.kt`, `ui/Sheets.kt`, `ui/Components.kt`, `ui/Theme.kt` — screens, forms/dialogs, heatmaps/shared components, and Material 3 themes.
+- `ui/TodayContent.kt`, `InsightsContent.kt`, `HistoryComponents.kt`, `DateInspector.kt` — logging-first Today, schedule-aware Insights and lazy history/inspection.
+- `ui/Screens.kt`, `ui/Settings.kt`, `ui/Sheets.kt`, `ui/Components.kt`, `ui/Theme.kt` — screens, preferences, forms/dialogs, charts/shared components and Material 3 themes.
 
 Unit tests live in `app/src/test/`; native interaction tests and the screenshot walkthrough live in `app/src/androidTest/`.
 
-## Prototype boundaries
+## Current boundaries
 
 - **Local only:** no backend, cloud sync, GitHub integration, real authentication, reminders, or notifications.
 - **Not a secure journal:** workspace data is plaintext JSON in app-private storage, not application-encrypted. The debug APK is debuggable. Backup/device-transfer exclusions are configured, but exports are ordinary plaintext files.
-- **Export, not import:** Android's document picker writes a snapshot with the sign-in flag cleared. There is no restore/import UI. Habit names, notes, history, and profile fields are included, so choose the export destination carefully; a cloud-backed document provider may sync it independently of this app.
-- **One workspace per installation:** sign-out keeps it; reset, clearing app data, or uninstalling removes it. Exported copies are not deleted by reset.
-- **Navigation is not a persisted session:** a fresh activity launch returns to Today after onboarding; workspace contents and theme persist. Undo history does not survive a fresh process.
-- **Phone-first mock-up:** suitable for exploring the flows, not a production or Play Store release. The pinned toolchain/target should be revisited before distribution.
+- **Export, not import yet:** Android's document picker writes validated v2 history, schedules, calendar/preferences and profile. No credentials/sign-in flag. Restore UI is Task 12. Exports are plaintext; a cloud-backed provider may sync them independently.
+- **One workspace per installation:** reset preserves the previous workspace app-privately before verified replacement; clearing app data/uninstalling removes app-private data and preservation copies. External exports are not deleted by reset.
+- **Small saved UI state:** routes/drafts/selection/scroll use saved state; records reload from disk. Undo remains bounded in memory and does not survive process death.
+- **Intermediate local build:** not a Play Store release or final personal-use handoff. Full TalkBack, older-device, performance and transfer coverage is pending; see dated evidence rather than historical screenshots.
 
 Build reference: [Android command-line builds](https://developer.android.com/build/building-cmdline) · [AGP 8.13 release notes](https://developer.android.com/build/releases/agp-8-13-0-release-notes).
+
+## Task 11: Insights and history
+
+Insights uses exact resolved calendar periods, including short calendar bridges;
+Previous/Next moves between those periods rather than a rolling seven-day window.
+The overview contribution heatmap now counts **recorded commits**, not the
+prototype's cross-repo average goal score. Partial and optional activity count as
+activity, not goal achievement. Per-repo heatmaps retain capped numeric daily
+target progress. Charts are noninteractive; **Explore by date** provides exact
+amounts, eligibility, weekly quota/practice context, and editable stored commits.
+
+Day adherence counts achieved/assessed habit-dates for daily and weekday schedules.
+Week adherence counts achieved/assessed full habit-weeks for weekly quotas. These
+denominators are never combined. Pending, future, transitional and not-applicable
+results are excluded; an achieved open date/week may count. No assessed results
+means unavailable, not 0%. Activity streaks remain a separate metric.
+
+History orders commits by recording timestamp, newest first, while stored local
+dates determine credit. Inspection includes retained future-dated records without
+early goal credit. Correcting, deleting, or cancelling a correction returns to the
+inspected date; stored expectations remain unchanged.
