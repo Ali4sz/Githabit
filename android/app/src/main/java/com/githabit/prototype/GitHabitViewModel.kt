@@ -22,6 +22,9 @@ import com.githabit.prototype.data.WorkspaceJsonException
 import com.githabit.prototype.data.WorkspaceLoadResult
 import com.githabit.prototype.data.WorkspaceStore
 import com.githabit.prototype.data.WriteOutcome
+import com.githabit.prototype.data.RestoreDocument
+import com.githabit.prototype.data.RecoverySnapshot
+import com.githabit.prototype.data.workspaceDigest
 import com.githabit.prototype.domain.*
 import java.time.LocalDate
 import java.time.DayOfWeek
@@ -41,6 +44,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import java.io.InputStream
+import java.io.OutputStream
 
 enum class Destination { TODAY, REPOS, INSIGHTS, ACTIVITY, SETTINGS, DETAIL }
 sealed interface Overlay {
@@ -75,7 +81,10 @@ class GitHabitViewModel(
     private val undos = linkedMapOf<String, UndoRecord>()
     // Fingerprints retain every unresolved replacement barrier without retaining large
     // workspace snapshots. A later failed attempt cannot erase an earlier candidate.
-    private val uncertainReplacements = mutableSetOf<String>()
+    private val uncertainReplacements = savedStateHandle.get<List<String>>("transfer.replacements")
+        .orEmpty().filter { it.matches(Regex("[0-9a-f]{64}")) }.toMutableSet()
+    var transferNeedsReconciliation by mutableStateOf(uncertainReplacements.isNotEmpty())
+        private set
     private var uncertainUndoId: String? = null
     private var inFlightWorkspace: Workspace? = null
     // Only one ordinary candidate can be unresolved: recovery blocks further ordinary
@@ -144,6 +153,16 @@ class GitHabitViewModel(
         get() = !workspace.onboarded && workspace.habits.isEmpty() && workspace.commits.isEmpty()
     var workspaceSession by mutableIntStateOf(savedStateHandle.get<Int>(SESSION_STATE_KEY) ?: 0)
         private set
+    private var workspaceRevision = 0L
+    var restoreState by mutableStateOf<RestoreState?>(null)
+        private set
+    var resetPreview by mutableStateOf<ResetPreview?>(null)
+        private set
+    private var restoreRead: Job? = null
+    private data class ExportRequest(val id: String, val workspace: Workspace?, val recovery: RecoverySnapshot?)
+    private var pendingExport: ExportRequest? = null
+    var exportInProgress by mutableStateOf(false)
+        private set
 
     constructor(application: Application) : this(
         application,
@@ -205,6 +224,7 @@ class GitHabitViewModel(
     private suspend fun applyLoadResult(result: WorkspaceLoadResult) {
         when (result) {
             is WorkspaceLoadResult.Missing -> {
+                workspaceRevision++
                 workspace = Workspace()
                 load = WorkspaceLoad.Ready(isNew = true)
             }
@@ -213,7 +233,7 @@ class GitHabitViewModel(
                     workspaceFingerprint(result.workspace) in uncertainReplacements
                 }
                 // Reconciliation is not a replay. Changed data invalidates stale inverses/routes.
-                if (load is WorkspaceLoad.Recovery) {
+                if (replaced || load is WorkspaceLoad.Recovery) {
                     if (replaced) {
                         clearTransientState(clearCalendarObservation = replaced)
                     } else if (workspace != result.workspace) {
@@ -225,10 +245,13 @@ class GitHabitViewModel(
                     }
                 }
                 uncertainReplacements.clear()
+                savedStateHandle["transfer.replacements"] = emptyList<String>()
+                transferNeedsReconciliation = false
                 uncertainUndoId = null
                 uncertainOrdinaryBoundary = null
                 val prepared = withContext(ioDispatcher) { ProgressAnalytics(result.workspace, today) }
                 workspace = result.workspace
+                workspaceRevision++
                 cacheAnalytics(prepared)
                 reconcileSubmittedForm()
                 reconcileCalendarObservation()
@@ -271,25 +294,36 @@ class GitHabitViewModel(
         uncertainOrdinaryBoundary = null
         if (clearCalendarObservation) observedCalendarBoundary = null
         overlay = null
+        cancelRestore()
+        resetPreview = null
         publishNavigation(NavigationState())
+        uncertainReplacements.clear()
+        savedStateHandle["transfer.replacements"] = emptyList<String>()
     }
 
     private fun replaceWithEmpty(fromRecovery: Boolean) = replaceWorkspace(Workspace(), fromRecovery)
 
-    /** Internal confirmed-candidate seam; Task 12 owns document preview/revision consent. */
-    internal fun replaceWorkspace(candidate: Workspace, fromRecovery: Boolean = false) {
+    /** Internal command seam; public document replacement requires preview-bound consent. */
+    internal fun replaceWorkspace(candidate: Workspace, fromRecovery: Boolean = false,
+        consent: (() -> Boolean)? = null, successMessage: String? = null) {
         if (busy || (if (fromRecovery) load !is WorkspaceLoad.Recovery else load !is WorkspaceLoad.Ready)) return
         busy = true
         viewModelScope.launch {
             mutation.withLock {
                 try {
                     if (if (fromRecovery) load !is WorkspaceLoad.Recovery else load !is WorkspaceLoad.Ready) return@withLock
+                    if (consent?.invoke() == false) return@withLock
                     withContext(NonCancellable) {
                         if (persist(candidate, replacement = true)) {
-                            clearTransientState()
-                            load = WorkspaceLoad.Ready(isNew = candidate == Workspace())
-                            refreshDate()
-                            noticeChannel.trySend(Notice("Workspace replaced. Any previous data was preserved on this device before replacement."))
+                            // A presentation failure after commitment must never claim rollback.
+                            try {
+                                clearTransientState()
+                                load = WorkspaceLoad.Ready(isNew = candidate == Workspace())
+                                refreshDate()
+                                noticeChannel.trySend(Notice(successMessage ?: "Workspace replaced. Any previous data was preserved on this device before replacement."))
+                            } catch (_: Exception) {
+                                noticeChannel.trySend(Notice("The replacement was saved. Reopen GitHabit to refresh the screen."))
+                            }
                         }
                     }
                 } catch (error: Exception) {
@@ -629,16 +663,28 @@ class GitHabitViewModel(
         else withContext(ioDispatcher) { ProgressAnalytics(next, today,
             previousAnalytics?.commits?.takeIf { previousSnapshot?.commits === next.commits }) }
         inFlightWorkspace = next.takeUnless { replacement }
-        val (outcome, fingerprint) = try {
-            withContext(ioDispatcher) {
-                val fingerprint = if (replacement) workspaceFingerprint(next) else null
-                (if (replacement) store.replaceVerified(next) else store.write(next)) to fingerprint
-            }
+        val fingerprint = if (replacement) withContext(ioDispatcher) { workspaceFingerprint(next) } else null
+        // Save only a small intent marker before disk IO. On recreation, equal-value
+        // replacements must still dispose of the old workspace's saved drafts.
+        val alreadyUncertain = fingerprint in uncertainReplacements
+        fingerprint?.let {
+            uncertainReplacements += it
+            savedStateHandle["transfer.replacements"] = uncertainReplacements.toList()
+        }
+        val outcome = try {
+            withContext(ioDispatcher) { if (replacement) store.replaceVerified(next) else store.write(next) }
         } finally { inFlightWorkspace = null }
+        if (fingerprint != null && !alreadyUncertain && outcome !is WriteOutcome.Indeterminate && outcome !is WriteOutcome.Committed) {
+            uncertainReplacements -= fingerprint
+            savedStateHandle["transfer.replacements"] = uncertainReplacements.toList()
+        }
         return when (outcome) {
             WriteOutcome.Committed -> {
-                if (replacement) uncertainReplacements.clear()
+                if (replacement) {
+                    transferNeedsReconciliation = false
+                }
                 workspace = next
+                workspaceRevision++
                 cacheAnalytics(prepared)
                 // Locked transitions now carry their own evidence. A cancellation captured
                 // before B may also finish after B; do not apply its observation to a later,
@@ -656,6 +702,7 @@ class GitHabitViewModel(
                 false
             }
             WriteOutcome.Indeterminate -> {
+                transferNeedsReconciliation = true
                 if (!replacement) uncertainOrdinaryBoundary = next.calendar.pending?.boundary
                 fingerprint?.let { uncertainReplacements += it }
                 if (retryUndoId != null) uncertainUndoId = retryUndoId
@@ -680,8 +727,7 @@ class GitHabitViewModel(
     }
 
     /** Canonical v2 encoding aligns value-equivalent loaded JSON with confirmed candidates. IO only. */
-    private fun workspaceFingerprint(candidate: Workspace): String = MessageDigest.getInstance("SHA-256")
-        .digest(WorkspaceJson.encode(candidate).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun workspaceFingerprint(candidate: Workspace): String = workspaceDigest(WorkspaceJson.encode(candidate))
 
     private fun textFingerprint(text: String): String = MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
@@ -938,4 +984,147 @@ class GitHabitViewModel(
             }
         }
     }
+
+    /** A new selection does not dismiss the form underneath it or mutate disk. */
+    fun requestRestore(): String? {
+        if (busy || load is WorkspaceLoad.Loading || exportInProgress) return null
+        restoreRead?.cancel()
+        resetPreview = null
+        return UUID.randomUUID().toString().also { restoreState = RestoreState.Selecting(it) }
+    }
+
+    fun cancelRestore() {
+        restoreRead?.cancel()
+        restoreRead = null
+        restoreState = null
+    }
+
+    fun restoreSelected(requestId: String, uri: Uri?) = readRestore(requestId,
+        uri?.let { { requireNotNull(requireNotNull(appContext).contentResolver.openInputStream(it)) } })
+
+    /** Test seam injects the chosen provider stream; no installed-app fixture entry point. */
+    internal fun readRestore(requestId: String, openInput: (() -> InputStream)?) {
+        if (restoreState != RestoreState.Selecting(requestId)) return
+        if (openInput == null) { cancelRestore(); return }
+        restoreState = RestoreState.Reading(requestId)
+        restoreRead = viewModelScope.launch {
+            try {
+                val document = withContext(ioDispatcher) {
+                    val context = kotlin.coroutines.coroutineContext
+                    RestoreDocument.read {
+                        context.ensureActive()
+                        object : java.io.FilterInputStream(openInput()) {
+                            override fun read(): Int { context.ensureActive(); return super.read() }
+                            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                                context.ensureActive()
+                                return `in`.read(bytes, offset, length)
+                            }
+                        }
+                    }
+                }
+                mutation.withLock {
+                    if (restoreState == RestoreState.Reading(requestId) && load !is WorkspaceLoad.Loading) {
+                        restoreState = RestoreState.Preview(requestId, document, workspaceRevision, load,
+                            workspace.habits.size, workspace.commits.size)
+                    }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (restoreState == RestoreState.Reading(requestId)) restoreState = RestoreState.Failed(requestId,
+                    if (error is WorkspaceJsonException) error.message ?: "The document did not pass validation."
+                    else "The document could not be read completely. Select it again or choose another file. Nothing was replaced.")
+            }
+        }
+    }
+
+    fun confirmRestore(expected: RestoreState.Preview) {
+        if (restoreState !== expected || busy || load is WorkspaceLoad.Loading || transferNeedsReconciliation) return
+        // An indeterminate restore must be reconciled, never retried from the old preview.
+        if (load != expected.context) {
+            restoreState = expected.copy(revision = workspaceRevision, context = load,
+                currentHabitCount = workspace.habits.size, currentCommitCount = workspace.commits.size, consentUpdated = true)
+            return
+        }
+        replaceWorkspace(expected.document.workspace, fromRecovery = expected.context is WorkspaceLoad.Recovery,
+            consent = {
+                if (restoreState !== expected || transferNeedsReconciliation) false
+                else if (workspaceRevision != expected.revision || load != expected.context) {
+                    restoreState = expected.copy(revision = workspaceRevision, context = load,
+                        currentHabitCount = workspace.habits.size, currentCommitCount = workspace.commits.size, consentUpdated = true)
+                    false
+                } else true
+            }, successMessage = "Workspace restored. Previous data was preserved on this device before replacement.")
+    }
+
+    fun requestReset() {
+        if (!busy && load !is WorkspaceLoad.Loading && !exportInProgress) {
+            cancelRestore()
+            resetPreview = ResetPreview(workspaceRevision, load, workspace.habits.size, workspace.commits.size)
+        }
+    }
+
+    fun cancelReset() { if (!busy) resetPreview = null }
+
+    fun confirmReset(expected: ResetPreview) {
+        if (resetPreview !== expected || busy || load is WorkspaceLoad.Loading || transferNeedsReconciliation) return
+        if (load != expected.context) {
+            resetPreview = ResetPreview(workspaceRevision, load, workspace.habits.size, workspace.commits.size, true)
+            return
+        }
+        replaceWorkspace(Workspace(), fromRecovery = expected.context is WorkspaceLoad.Recovery, consent = {
+            if (resetPreview !== expected || transferNeedsReconciliation) false
+            else if (workspaceRevision != expected.revision || load != expected.context) {
+                resetPreview = ResetPreview(workspaceRevision, load, workspace.habits.size, workspace.commits.size, true)
+                false
+            } else true
+        }, successMessage = "Workspace reset. Previous data was preserved on this device; external exports were not deleted.")
+    }
+
+    /** Freeze the committed source BEFORE opening the external picker. Not saved in a Bundle. */
+    fun prepareExport(recovery: Boolean = false, onReady: (String, String) -> Unit) {
+        if (exportInProgress || busy || (if (recovery) load !is WorkspaceLoad.Recovery else load !is WorkspaceLoad.Ready)) return
+        val snapshot = workspace
+        val date = today
+        exportInProgress = true
+        viewModelScope.launch {
+            try {
+                val copy = if (recovery) mutation.withLock {
+                    if (load !is WorkspaceLoad.Recovery) null else withContext(ioDispatcher) { store.recoverySnapshot() }
+                } else null
+                if (recovery) requireNotNull(copy) { "No recovery bytes are available to save." }
+                else withContext(ioDispatcher) { WorkspaceJson.encode(snapshot) }
+                val request = ExportRequest(UUID.randomUUID().toString(), snapshot.takeUnless { recovery }, copy)
+                pendingExport = request
+                onReady(request.id, "githabit-${if (recovery) "recovery" else "workspace-v2"}-$date.json")
+            } catch (error: Exception) {
+                pendingExport = null
+                exportInProgress = false
+                if (error is CancellationException) throw error
+                noticeChannel.trySend(Notice("Export was not started. ${if (error is IllegalArgumentException) error.message ?: "" else "Try another location."}"))
+            }
+        }
+    }
+
+    fun completeExport(requestId: String?, uri: Uri?) = writeExport(requestId,
+        uri?.let { { requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(it, "wt")) } })
+
+    internal fun writeExport(requestId: String?, openOutput: (() -> OutputStream)?) {
+        val request = pendingExport?.takeIf { it.id == requestId } ?: return
+        pendingExport = null
+        if (openOutput == null) { exportInProgress = false; return }
+        viewModelScope.launch {
+            try {
+                withContext(ioDispatcher) {
+                    if (request.workspace != null) WorkspaceJson.export(request.workspace, openOutput)
+                    else openOutput().use(requireNotNull(request.recovery)::writeTo)
+                }
+                noticeChannel.trySend(Notice(if (request.workspace != null) "Your selected workspace snapshot has been exported."
+                    else "A recovery snapshot was saved byte-for-byte. It may need repair before use."))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                noticeChannel.trySend(Notice("Export failed. The chosen file may be incomplete; select a location to retry."))
+            } finally { exportInProgress = false }
+        }
+    }
+
 }
