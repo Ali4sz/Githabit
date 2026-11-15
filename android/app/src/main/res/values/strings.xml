@@ -9,7 +9,7 @@
     <string name="empty_workspace_description">Your workspace has no habits or commits. Create a repo to start recording your own progress.</string>
     <string name="loading_workspace">Reading your workspace…</string>
     <string name="reset_workspace">Reset workspace</string>
-    <string name="local_storage_notice">GitHabit keeps your workspace on this device, without accounts or cloud sync. Uninstalling erases local data. Exports are plaintext and a chosen document provider may sync them independently. Import is not yet available in this build.</string>
+    <string name="local_storage_notice">GitHabit keeps your workspace on this device, without accounts or cloud sync. Uninstalling erases local data. Exports are plaintext and a chosen document provider may sync them independently. Restore validates a selected export and replaces, rather than merges, your workspace after confirmation.</string>
     <string name="local_footer">GitHabit · Local workspace</string>
     <string name="settings_title">Settings</string>
     <string name="workspace_title">Your workspace</string>
@@ -51,7 +51,6 @@
     <string name="activity_title">Activity log</string>
     <string name="activity_description">Review or correct your contributions.</string>
     <string name="reset_title">Start with a clean slate?</string>
-    <string name="reset_description">This replaces all local repos, commits, profile, and preferences with an empty workspace. Export first to keep an external copy. A verified preservation copy is required before replacement; external exports are not deleted.</string>
     <string name="reset_confirm">Reset everything</string>
     <string name="repositories_title">Your repositories</string>
     <string name="repositories_subtitle">Small projects. A bigger picture.</string>
@@ -239,4 +238,41 @@
     <string name="guide_history">Correct or delete existing commits, with Undo. Habit target, schedule, and status changes apply today; earlier expectations remain. Week starts on changes are future-effective and preserve old bounds, with short unscored weekly bridges. Activity streaks are not schedule adherence.</string>
     <string name="guide_done">Done</string>
     <string name="history_practice_day">Daily target reached: completed practice date in an unscored period, not quota achievement.</string>
+    <string name="restore_title">Restore workspace</string>
+    <string name="restore_description">Select a JSON export, validate it, then review replacement.</string>
+    <string name="restore_reading">Reading workspace</string>
+    <string name="restore_validating">Validating the complete document. No data is replaced during this step.</string>
+    <string name="restore_failed">Document not restored</string>
+    <string name="restore_choose_another">Choose another document</string>
+    <string name="restore_preview_title">Replace with this workspace?</string>
+    <string name="restore_format">Validated format: version %1$d</string>
+    <string name="restore_incoming">Incoming workspace</string>
+    <string name="restore_migration">This version 1 document will be migrated to version 2, preserving its valid records.</string>
+    <string name="restore_replace_warning">Restore replaces the entire workspace; it does not merge records. The validated snapshot shown here is used even if the source document later changes. Routes, drafts and Undo are cleared only after verified replacement.</string>
+    <string name="restore_confirm">Replace workspace</string>
+    <string name="transfer_current">Current committed workspace</string>
+    <string name="transfer_recovery_counts">Current storage needs recovery. Its complete record counts cannot be verified here; any last readable snapshot may be incomplete.</string>
+    <string name="transfer_preservation">GitHabit must save and verify an on-device preservation copy before replacement. This is a safeguard, not a guarantee against device loss. Export a copy first if you need an external backup.</string>
+    <string name="transfer_export_first">Export current workspace first</string>
+    <string name="transfer_export_recovery">Save a recovery copy</string>
+    <string name="transfer_cancel">Cancel</string>
+    <string name="transfer_unchanged">Your workspace, drafts and Undo were not changed.</string>
+    <string name="transfer_consent_updated">Your workspace or recovery state changed. Review this refreshed preview and confirm again.</string>
+    <string name="transfer_reconcile">The previous save outcome is unknown. Re-read storage before confirming another replacement.</string>
+    <string name="reset_replace_warning">Reset removes all repos, commits, profile and preferences from the active workspace. It cannot be undone. External exports are not deleted. The new workspace starts empty.</string>
+    <plurals name="transfer_repos"><item quantity="one">%d repo</item><item quantity="other">%d repos</item></plurals>
+    <plurals name="transfer_commits"><item quantity="one">%d commit</item><item quantity="other">%d commits</item></plurals>
+    <string name="recovery_title">Your data needs attention</string>
+    <string name="recovery_meaning">What this means</string>
+    <string name="recovery_unsupported">This app cannot open the file’s format. Its bytes were not modified. A compatible app version may be needed.</string>
+    <string name="recovery_io">The storage location could not be read. This can be temporary — trying again is safe.</string>
+    <string name="recovery_indeterminate">The last save could not be verified. The file may contain the previous or attempted change. Saving is paused until storage can be re-read.</string>
+    <string name="recovery_invalid">The workspace is damaged, exceeds supported capacity, or did not pass validation. Opening it does not replace it.</string>
+    <string name="recovery_preserved">Recovery copy verified</string>
+    <string name="recovery_unpreserved">Preservation unavailable</string>
+    <string name="recovery_paused">Paused for recovery</string>
+    <string name="recovery_options">Recovery options</string>
+    <string name="recovery_retry">Try reading your data again</string>
+    <string name="recovery_start_over">Start over with an empty workspace</string>
+    <string name="recovery_policy">Retry only re-reads storage. Restore and start over require confirmation and a verified preservation copy before replacement. Recovery copies are not a substitute for an external backup.</string>
 </resources>

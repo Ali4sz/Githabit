@@ -35,8 +35,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 @Composable
-fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
-    var resetConfirmation by rememberSaveable { mutableStateOf(false) }
+fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit, onRestore: () -> Unit) {
     PageColumn(Modifier.imePadding()) {
         PreferenceHeading(stringResource(R.string.settings_title))
         ProfilePreferences(vm)
@@ -59,12 +58,14 @@ fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
         Panel {
             PreferenceHeading(stringResource(R.string.data_title))
             SettingsAction(stringResource(R.string.export_title), stringResource(R.string.export_description),
-                Icons.Outlined.Download, !vm.busy, "export-workspace", onExport)
+                 Icons.Outlined.Download, !vm.busy && !vm.exportInProgress, "export-workspace", onExport)
+            SettingsAction(stringResource(R.string.restore_title), stringResource(R.string.restore_description),
+                Icons.Outlined.Upload, !vm.busy && !vm.exportInProgress, "restore-workspace", onRestore)
             SettingsAction(stringResource(R.string.guide_title), stringResource(R.string.guide_description),
                 Icons.AutoMirrored.Outlined.HelpOutline, !vm.busy, "open-guide") { vm.overlay = Overlay.Guide }
             SettingsAction(stringResource(R.string.activity_title), stringResource(R.string.activity_description),
                 Icons.Outlined.History, !vm.busy, "open-activity") { vm.navigate(Destination.ACTIVITY) }
-            TextButton(onClick = { resetConfirmation = true }, enabled = !vm.busy,
+            TextButton(onClick = vm::requestReset, enabled = !vm.busy && !vm.exportInProgress,
                 modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch)
                     .focusOutline(CircleShape, MaterialTheme.colorScheme.error).testTag("reset-workspace"),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
@@ -73,9 +74,6 @@ fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit) {
         }
         Subtitle(stringResource(R.string.local_storage_notice))
     }
-    if (resetConfirmation) ConfirmDialog(stringResource(R.string.reset_title), stringResource(R.string.reset_description),
-        stringResource(R.string.reset_confirm), destructive = true,
-        onDismiss = { resetConfirmation = false }, onConfirm = { resetConfirmation = false; vm.reset() })
 }
 
 @Composable

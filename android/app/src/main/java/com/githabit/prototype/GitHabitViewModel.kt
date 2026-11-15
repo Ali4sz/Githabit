@@ -942,49 +942,6 @@ class GitHabitViewModel(
     /** Confirmed reset: preserve a copy first, then replace with verified empty data. */
     fun reset() = replaceWithEmpty(fromRecovery = false)
 
-    fun export(uri: Uri) {
-        if (load !is WorkspaceLoad.Ready) return
-        val snapshot = workspace
-        viewModelScope.launch {
-            try {
-                withContext(ioDispatcher) {
-                    WorkspaceJson.export(snapshot) {
-                        requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(uri, "wt"))
-                    }
-                }
-                noticeChannel.trySend(Notice("Your workspace has been exported."))
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice(if (error is WorkspaceJsonException) "Export was not started: ${error.message}"
-                    else "Export failed. The chosen file may be incomplete; try another location."))
-            }
-        }
-    }
-
-    /** Save the preserved unreadable/last-good data as a user-selected document. */
-    fun exportRecoveryCopy(uri: Uri) {
-        if (load !is WorkspaceLoad.Recovery) return
-        viewModelScope.launch {
-            try {
-                val snapshot = mutation.withLock {
-                    if (load !is WorkspaceLoad.Recovery) null else withContext(ioDispatcher) { store.recoverySnapshot() }
-                }
-                if (snapshot == null) {
-                    noticeChannel.trySend(Notice("No readable recovery bytes are available to save."))
-                    return@launch
-                }
-                withContext(ioDispatcher) {
-                    requireNotNull(requireNotNull(appContext).contentResolver.openOutputStream(uri, "wt"))
-                        .use(snapshot::writeTo)
-                }
-                noticeChannel.trySend(Notice("A recovery snapshot was saved byte-for-byte. It may need repair before use."))
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice("Copy failed. The chosen file may be incomplete; try another location."))
-            }
-        }
-    }
-
     /** A new selection does not dismiss the form underneath it or mutate disk. */
     fun requestRestore(): String? {
         if (busy || load is WorkspaceLoad.Loading || exportInProgress) return null

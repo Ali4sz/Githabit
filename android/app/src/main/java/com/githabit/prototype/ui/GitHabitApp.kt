@@ -63,9 +63,31 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             }
         }
     }
-    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::export) }
-    val onExport = { export.launch("githabit-${vm.today}.json") }
-    val recoveryExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::exportRecoveryCopy) }
+    // Unconditional registration and small correlation tokens survive Activity recreation.
+    // Payloads and consent stay in the ViewModel only; late process-death results are ignored.
+    var exportRequest by rememberSaveable { mutableStateOf<String?>(null) }
+    var restoreRequest by rememberSaveable { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        vm.completeExport(exportRequest, uri)
+        exportRequest = null
+    }
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        restoreRequest?.let { vm.restoreSelected(it, uri) }
+        restoreRequest = null
+    }
+    val onExport: () -> Unit = {
+        vm.prepareExport(recovery = vm.load is WorkspaceLoad.Recovery) { id, filename ->
+            exportRequest = id
+            try { export.launch(filename) } catch (_: Exception) { vm.completeExport(id, null); exportRequest = null }
+        }
+    }
+    val onRestore: () -> Unit = {
+        vm.requestRestore()?.let { id ->
+            restoreRequest = id
+            try { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
+            catch (_: Exception) { vm.restoreSelected(id, null); restoreRequest = null }
+        }
+    }
     val load = vm.load
     val recovery = load as? WorkspaceLoad.Recovery
     val workspaceOpen = load is WorkspaceLoad.Ready && !vm.needsWelcome
@@ -75,7 +97,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     var backProgress by remember { mutableFloatStateOf(0f) }
     // Always compose this handler. Dialog/sheet windows retain their standard, higher-priority Back.
     // No route/history changes occur while collecting; cancellation only resets presentation.
-    PredictiveBackHandler(enabled = workspaceOpen && vm.overlay == null && vm.canGoBack) { progress ->
+    PredictiveBackHandler(enabled = workspaceOpen && vm.overlay == null && vm.restoreState == null && vm.resetPreview == null && vm.canGoBack) { progress ->
         val expected = vm.navigation
         try {
             progress.collect { backProgress = it.progress.coerceIn(0f, 1f) }
@@ -149,10 +171,10 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                             CircularProgressIndicator()
                             Text(stringResource(R.string.loading_workspace))
                         }
-                        recovery != null -> RecoveryScreen(recovery, vm.canSaveRecoveryCopy, vm.busy,
-                            onRetry = vm::retryLoad,
-                            onSaveCopy = { recoveryExport.launch("githabit-recovery-${vm.today}.json") },
-                            onStartOver = vm::startOverFromRecovery)
+                        recovery != null -> RecoveryScreen(recovery, vm.canSaveRecoveryCopy, vm.busy || vm.exportInProgress,
+                             onRetry = vm::retryLoad,
+                             onSaveCopy = onExport, onRestore = onRestore,
+                             onStartOver = vm::requestReset)
                         vm.needsWelcome -> WelcomeScreen(vm)
                         else -> Box(Modifier.fillMaxSize().testTag("page-${vm.destination.name}")
                             .semantics { this[BackPreviewProgress] = backProgress }
@@ -170,7 +192,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
                                     Destination.TODAY -> TodayScreen(vm)
                                     Destination.INSIGHTS -> InsightsScreen(vm)
                                     Destination.ACTIVITY -> ActivityScreen(vm, onExport)
-                                    Destination.SETTINGS -> SettingsScreen(vm, onExport)
+                                     Destination.SETTINGS -> SettingsScreen(vm, onExport, onRestore)
                                     else -> Unit
                                 }
                             }
@@ -180,6 +202,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             }
         }
         if (workspaceOpen) WorkspaceSheet(vm, sheetState)
+        TransferDialogs(vm, onExport, onRestore)
     }
 }
 

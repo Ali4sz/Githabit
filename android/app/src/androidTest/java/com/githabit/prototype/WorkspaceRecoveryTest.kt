@@ -84,7 +84,7 @@ class WorkspaceRecoveryTest {
         launch()
         waitFor("recovery-start-over")
         compose.onNodeWithTag("recovery-start-over").performScrollTo().performClick()
-        compose.onNodeWithText("Start over", substring = false).performClick()
+        compose.onNodeWithTag("confirm-reset").performScrollTo().performClick()
         waitFor("local-welcome")
         assertEquals(Workspace(), WorkspaceJson.decode(primary.readText()))
         assertTrue(context.filesDir.listFiles()!!.any {
