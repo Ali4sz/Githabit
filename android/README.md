@@ -2,12 +2,12 @@
 
 A local personal habit tracker built with **Kotlin, Jetpack Compose, and Material 3**. Repo/commit language and contribution history are intentional. This is a native app, not a WebView; the [web prototype](../README.md) is unchanged.
 
-**Current checkpoint (2026-11-14):** Tasks 1–11 are implemented; see
-[Task 11 evidence](docs/task11-verification.md) for exact build/test results and limits.
+**Current checkpoint (2026-11-15):** Tasks 1–12 are implemented; see
+[Task 12 evidence](docs/task12-verification.md) for exact build/test results and limits.
 The native APK is real-data-only: no demo/authentication, sample workspace, or runtime
-generator. This is still an intermediate build: restore and final accessibility/
-performance/transfer verification remain in the [build plan](../.plans/githabit-android-build-plan.md).
-Earlier [phone results](docs/phone-verification.md) do not verify Task 11; no new phone
+generator. This is still an intermediate build: final accessibility/performance/
+platform verification remains in the [build plan](../.plans/githabit-android-build-plan.md).
+Earlier [phone results](docs/phone-verification.md) do not verify Task 12; no new phone
 operation is authorized or performed for this task.
 
 ## Try it
@@ -41,7 +41,7 @@ exist; refreshed task-specific captures and final screenshot cleanup belong to T
 - **Commits:** positive fractional amounts, optional messages, multiple logs per day, and snackbar Undo for logging, correction, deletion, completion, and status changes.
 - **Date explorer:** exact daily eligibility/amounts, weekly quota/practice context, and retained future records without early credit; returns to the inspected date after correction/deletion/cancellation.
 - **Insights and Activity:** resolved calendar periods, separate day/week adherence, recorded-activity graph and lazy timestamp-ordered history.
-- **Settings:** optional display name/bio, System/Light/Dark theme, dated week-start preference, guide, JSON export and confirmed reset. Restore UI is not implemented yet.
+- **Settings:** optional display name/bio, System/Light/Dark theme, dated week-start preference, guide, JSON export, validated replace-only restore and confirmed reset with an export-first option.
 - **Native behavior:** adaptive bar/rail and list/detail, saved routes/drafts/scroll, system Back and predictive route gestures, keyboard-aware forms and document picker. Full accessibility/platform coverage remains unverified.
 
 ### Tracking rules
@@ -96,7 +96,8 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 The output is `app/build/outputs/apk/debug/app-debug.apk`, signed with a **debug key**,
 not a production distribution key. On Windows use `gradlew.bat`. Preserve the signing
 key for ordinary installed-data updates; do not uninstall a personal installation to
-bypass a signing mismatch. Restore is still pending.
+bypass a signing mismatch. Export and verify an external copy before any separately
+authorized reinstall; clearing app data or uninstalling erases on-device recovery copies.
 
 Only on an explicitly selected installation you intend to update:
 
@@ -155,13 +156,13 @@ older Android releases, landscape/tablet layouts, and a full accessibility audit
 All app sources below are relative to `app/src/main/java/com/githabit/prototype/`:
 
 - `MainActivity.kt` — activity entry point, Compose content, and date refresh on resume.
-- `GitHabitViewModel.kt` — navigation/overlays/drafts, clock, serialized verified commands, analytics cache, Undo, reset and export.
+- `GitHabitViewModel.kt`, `TransferState.kt` — navigation/drafts, verified commands, analytics, Undo, revision-bound restore/reset and frozen export requests.
 - `domain/Habits.kt`, `Schedules.kt`, `WeekCalendar.kt`, `ProgressAnalytics.kt`, `WeeklyAnalytics.kt`, `HeatmapQueries.kt` — immutable models, historical expectations/periods, schedule analytics and indexed chart/history queries.
-- `data/WorkspaceJson.kt` — versioned, validated JSON serialization.
+- `data/WorkspaceJson.kt`, `WorkspaceTransfer.kt` — versioned validated JSON, bounded document reads and retained restore fingerprints.
 - `data/WorkspaceStore.kt` — app-private atomic-file persistence.
 - `ui/GitHabitApp.kt` — scaffold, tab-state retention, back handling, system bars, snackbars, and document picker.
 - `ui/TodayContent.kt`, `InsightsContent.kt`, `HistoryComponents.kt`, `DateInspector.kt` — logging-first Today, schedule-aware Insights and lazy history/inspection.
-- `ui/Screens.kt`, `ui/Settings.kt`, `ui/Sheets.kt`, `ui/Components.kt`, `ui/Theme.kt` — screens, preferences, forms/dialogs, charts/shared components and Material 3 themes.
+- `ui/Screens.kt`, `ui/Settings.kt`, `ui/Sheets.kt`, `ui/TransferDialogs.kt`, `ui/Components.kt`, `ui/Theme.kt` — screens, preferences, separate transfer dialogs, forms, charts and Material 3 themes.
 
 Unit tests live in `app/src/test/`; native interaction tests and the screenshot walkthrough live in `app/src/androidTest/`.
 
@@ -169,10 +170,10 @@ Unit tests live in `app/src/test/`; native interaction tests and the screenshot 
 
 - **Local only:** no backend, cloud sync, GitHub integration, real authentication, reminders, or notifications.
 - **Not a secure journal:** workspace data is plaintext JSON in app-private storage, not application-encrypted. The debug APK is debuggable. Backup/device-transfer exclusions are configured, but exports are ordinary plaintext files.
-- **Export, not import yet:** Android's document picker writes validated v2 history, schedules, calendar/preferences and profile. No credentials/sign-in flag. Restore UI is Task 12. Exports are plaintext; a cloud-backed provider may sync them independently.
+- **Local transfer:** Android's document picker writes a committed v2 snapshot frozen before selection. Restore validates v1/v2 documents and replaces, never merges, after confirmation. Exports are plaintext; a cloud-backed provider may sync them independently. Failed external writes may leave incomplete files.
 - **One workspace per installation:** reset preserves the previous workspace app-privately before verified replacement; clearing app data/uninstalling removes app-private data and preservation copies. External exports are not deleted by reset.
 - **Small saved UI state:** routes/drafts/selection/scroll use saved state; records reload from disk. Undo remains bounded in memory and does not survive process death.
-- **Intermediate local build:** not a Play Store release or final personal-use handoff. Full TalkBack, older-device, performance and transfer coverage is pending; see dated evidence rather than historical screenshots.
+- **Intermediate local build:** not a Play Store release or final personal-use handoff. Full TalkBack, older-device, performance and real transfer process-death coverage is pending; see dated evidence rather than historical screenshots.
 
 Build reference: [Android command-line builds](https://developer.android.com/build/building-cmdline) · [AGP 8.13 release notes](https://developer.android.com/build/releases/agp-8-13-0-release-notes).
 
@@ -196,3 +197,25 @@ History orders commits by recording timestamp, newest first, while stored local
 dates determine credit. Inspection includes retained future-dated records without
 early goal credit. Correcting, deleting, or cancelling a correction returns to the
 inspected date; stored expectations remain unchanged.
+
+## Task 12: Export, restore and reset
+
+Use **Settings → Export your workspace** to save the committed snapshot, not unsaved
+form inputs. **Restore workspace** opens a document, reads it completely within the
+shared 32 MiB capacity contract, then shows incoming/current counts and replacement
+warnings. Version 1 uses startup's migration rules; unsupported format versions and
+invalid/oversized/interrupted input are rejected. Valid future-dated and mixed-origin
+records are preserved, along with historical calendar bridges and pending changes.
+
+Confirming uses the retained validated snapshot, not newly read provider contents.
+If the committed workspace changes, review the refreshed preview and confirm again.
+Cancellation/verified rollback retains drafts and Undo. An indeterminate outcome
+requires re-reading storage; no blind retry. Only verified replacement clears routes,
+drafts and Undo. Uncommitted preview/consent does not survive process death; reselect
+and validate again. Activity recreation retains the in-memory candidate.
+
+**Reset workspace** offers export first and explicitly replaces profile, preferences,
+repos and commits with an empty workspace. It has no Undo and does not delete external
+exports. Restore/reset require a verified on-device preservation copy before writing;
+these app-private copies are not protection against uninstall, device loss or every
+storage failure. Recovery also offers copy export, validated restore and start-over.
