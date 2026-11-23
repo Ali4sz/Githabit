@@ -1,0 +1,32 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Themed (monochrome) silhouette, same 72dp-visible-viewport mapping as
+         the colored foreground. Only alpha is used; the launcher tints it.
+         Outlines only (no fills) so the icon's holes stay transparent. -->
+    <!-- Commit line stubs (dot outer edge to ring outer edge). The colored
+         icon hides the middle with opaque fills; here the hole is transparent,
+         so the line must not cross the ring interior. -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.025"
+        android:strokeLineCap="round"
+        android:pathData="M33.075,54 L39.15,54 M68.85,54 L74.925,54" />
+    <!-- Leading and trailing nodes (rings) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.025"
+        android:pathData="M21.9375,54 a5.0625,5.0625 0 1,0 10.125,0 a5.0625,5.0625 0 1,0 -10.125,0 M75.9375,54 a5.0625,5.0625 0 1,0 10.125,0 a5.0625,5.0625 0 1,0 -10.125,0" />
+    <!-- Center done ring -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.025"
+        android:pathData="M40.1625,54 a13.8375,13.8375 0 1,0 27.675,0 a13.8375,13.8375 0 1,0 -27.675,0" />
+    <!-- Checkmark -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.43"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M46.9125,54.3375 L51.80625,59.4 L61.7625,48.6" />
+</vector>

@@ -12,5 +12,5 @@
     <style name="Theme.GitHabit" parent="Theme.GitHabit.Base" />
     <bool name="startup_light_system_bars">true</bool>
     <color name="startup_navigation">#FFFFFF</color>
-    <color name="launcher_background">#193426</color>
+    <color name="launcher_background">#0d1117</color>
 </resources>

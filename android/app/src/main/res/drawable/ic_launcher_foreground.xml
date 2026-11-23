@@ -1,7 +1,41 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:strokeColor="#8BE5AC" android:strokeWidth="4" android:strokeLineCap="round"
-        android:pathData="M43,38 L43,72 M43,52 C65,52 65,47 65,37" />
-    <path android:fillColor="#193426" android:strokeColor="#8BE5AC" android:strokeWidth="4"
-        android:pathData="M43,29 A6,6 0,1 0,43 41 A6,6 0,1 0,43 29 M43,67 A6,6 0,1 0,43 79 A6,6 0,1 0,43 67 M65,29 A6,6 0,1 0,65 41 A6,6 0,1 0,65 29" />
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- githabit-icon-dark.svg mapped into the adaptive icon's VISIBLE viewport.
+         AdaptiveIconDrawable only reveals the central 72dp of the 108dp canvas
+         (extraInsetFraction 0.25 => layers scaled 1.5x; visible = 108/1.5 = 72dp).
+         So the 512 favicon badge is mapped to 72dp: everything here is the
+         512->108 mapping scaled by 2/3. The mark then fills ~92% of the visible
+         icon (the favicon's own proportion) with no cropping of the end nodes. -->
+    <!-- Commit line -->
+    <path
+        android:strokeColor="#2ea344"
+        android:strokeWidth="2.025"
+        android:strokeLineCap="round"
+        android:pathData="M27,54 L81,54" />
+    <!-- Leading node -->
+    <path
+        android:fillColor="#0d1117"
+        android:strokeColor="#2ea344"
+        android:strokeWidth="2.025"
+        android:pathData="M21.9375,54 a5.0625,5.0625 0 1,0 10.125,0 a5.0625,5.0625 0 1,0 -10.125,0" />
+    <!-- Trailing node -->
+    <path
+        android:fillColor="#0d1117"
+        android:strokeColor="#2ea344"
+        android:strokeWidth="2.025"
+        android:pathData="M75.9375,54 a5.0625,5.0625 0 1,0 10.125,0 a5.0625,5.0625 0 1,0 -10.125,0" />
+    <!-- Center done ring -->
+    <path
+        android:fillColor="#0d1117"
+        android:strokeColor="#39d353"
+        android:strokeWidth="2.025"
+        android:pathData="M40.1625,54 a13.8375,13.8375 0 1,0 27.675,0 a13.8375,13.8375 0 1,0 -27.675,0" />
+    <!-- Checkmark -->
+    <path
+        android:strokeColor="#39d353"
+        android:strokeWidth="2.43"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M46.9125,54.3375 L51.80625,59.4 L61.7625,48.6" />
 </vector>
