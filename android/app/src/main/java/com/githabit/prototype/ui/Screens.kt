@@ -262,5 +262,7 @@ private fun Footer() {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(stringResource(R.string.local_footer), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.app_developer_credit), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

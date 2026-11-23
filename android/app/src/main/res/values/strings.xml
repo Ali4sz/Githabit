@@ -1,5 +1,9 @@
 <resources>
     <string name="app_name">GitHabit</string>
+    <string name="app_developer">Ali Samra</string>
+    <string name="app_description">A local, offline habit tracker that records progress as commits — no account or network required.</string>
+    <string name="app_copyright">Copyright © 2026 Ali Samra</string>
+    <string name="app_developer_credit">Developed by Ali Samra</string>
     <string name="welcome_title">Your habits, one commit at a time.</string>
     <string name="welcome_description">A repo is a habit you choose. A commit records progress toward its target, including partial progress.</string>
     <string name="welcome_local">Start with an empty workspace on this device. No account or connection is needed. Your optional profile and preferences live in Settings.</string>
