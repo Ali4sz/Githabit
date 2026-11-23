@@ -5,6 +5,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StrictJsonTest {
+    @Test fun skippedStringsValidateIdenticallyWithoutMaterializingTheirValues() {
+        val malformed = listOf("\"\\uD800\"", "\"\\uDC00\"", "\"\\uD800x\"", "\"\\uD800\\x\"",
+            "\"\\u123\"", "\"\\uZZZZ\"", "\"bad\ntext\"", "\"unterminated", "\"\\")
+        for (input in malformed) {
+            val read = assertThrows(WorkspaceJsonException::class.java) { StrictJson(input).readString() }
+            val skip = assertThrows(WorkspaceJsonException::class.java) { StrictJson(input).skipValue() }
+            assertEquals(read.kind, skip.kind)
+            assertEquals(read.message, skip.message)
+        }
+        for (input in listOf("\"\\uD83C\\uDF31\"", "\"🌱\"")) {
+            StrictJson(input).validate()
+        }
+        // A full-sized discarded value exercises the allocation-free probe path.
+        StrictJson("\"" + " ".repeat(WorkspaceLimits.MAX_BYTES - 2) + "\"").validate()
+    }
+
     @Test fun strictParserAcceptsNestedValuesWithoutCoercingTypesOrNumbers() {
         val reader = StrictJson("{\"a\":[true,false,null,\"12\",-0.125e+2],\"b\":{}}")
         reader.readObject { key ->

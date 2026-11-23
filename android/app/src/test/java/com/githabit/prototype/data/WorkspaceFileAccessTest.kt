@@ -3,6 +3,9 @@ package com.githabit.prototype.data
 import java.io.File
 import java.io.IOException
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -123,5 +126,103 @@ class WorkspaceFileAccessTest {
         assertEquals(retained, noStagingSpace.writeStream { ByteArrayInputStream(bytes) })
         assertNull(noStagingSpace.writeStream { ByteArrayInputStream("different".toByteArray()) })
         assertArrayEquals(bytes, retained.readBytes())
+    }
+
+    @Test fun matchingReadsReuseOnlyCompleteExactSnapshotsIncludingEmptyFiles() {
+        for (size in listOf(0, 1, 8191, 8192, 8193, 24_613)) {
+            val expected = ByteArray(size) { (it * 31).toByte() }
+            assertSame(expected, WorkspaceLimits.readMatchingBounded(expected.inputStream(), size.toLong(), listOf(expected)))
+            val ordinary = WorkspaceLimits.readBounded(expected.inputStream(), knownSize = size.toLong())
+            assertNotSame(expected, ordinary)
+            assertArrayEquals(expected, ordinary)
+        }
+    }
+
+    @Test fun mismatchingReadsRetainActualPrefixChunkAndSuffixNotFirstCandidatesPrefix() {
+        val actual = ByteArray(24_613) { (it * 31).toByte() }
+        val first = actual.copyOf().also { it[1]++ }
+        val second = actual.copyOf().also { it[20_000]++ }
+        val result = WorkspaceLimits.readMatchingBounded(actual.inputStream(), actual.size.toLong(), listOf(first, second))
+        assertNotSame(first, result)
+        assertNotSame(second, result)
+        assertArrayEquals(actual, result)
+        for (position in listOf(0, 8191, 8192, actual.lastIndex)) {
+            val changed = actual.copyOf().also { it[position]++ }
+            assertArrayEquals(changed, WorkspaceLimits.readMatchingBounded(changed.inputStream(), changed.size.toLong(), listOf(actual)))
+        }
+        assertSame(actual, WorkspaceLimits.readMatchingBounded(actual.inputStream(), actual.size.toLong(), listOf(first, actual)))
+    }
+
+    @Test fun matchingReadsRejectChangedLengthAndCapacityWithoutReturningAliasOrPrefix() {
+        val expected = byteArrayOf(0, 0xff.toByte(), 42)
+        for (actual in listOf(expected.copyOf(2), expected + byteArrayOf(1))) {
+            assertThrows(IOException::class.java) {
+                WorkspaceLimits.readMatchingBounded(actual.inputStream(), expected.size.toLong(), listOf(expected))
+            }
+            val result = WorkspaceLimits.readMatchingBounded(actual.inputStream(), actual.size.toLong(), listOf(expected))
+            assertNotSame(expected, result)
+            assertArrayEquals(actual, result)
+        }
+        val error = assertThrows(WorkspaceJsonException::class.java) {
+            WorkspaceLimits.readMatchingBounded(expected.inputStream(), WorkspaceLimits.MAX_BYTES.toLong() + 1, listOf(expected))
+        }
+        assertEquals(WorkspaceJsonFailure.CAPACITY, error.kind)
+    }
+
+    @Test fun knownSizeReadsExposeOnlySmallArraysAndHandleShortZeroAndUnsignedReads() {
+        val expected = ByteArray(24_613) { (it * 31).toByte() }
+        fun input() = object : InputStream() {
+            var position = 0
+            var calls = 0
+            override fun read(): Int = if (position == expected.size) -1 else expected[position++].toInt() and 255
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                assertTrue(bytes.size <= WorkspaceLimits.IO_BUFFER_BYTES)
+                if (++calls % 3 == 0) return 0
+                val count = minOf(7, length, expected.size - position)
+                if (count == 0) return -1
+                expected.copyInto(bytes, offset, position, position + count)
+                position += count
+                return count
+            }
+        }
+        assertArrayEquals(expected, WorkspaceLimits.readBounded(input(), knownSize = expected.size.toLong()))
+        assertSame(expected, WorkspaceLimits.readMatchingBounded(input(), expected.size.toLong(), listOf(expected)))
+        assertArrayEquals(expected, WorkspaceLimits.readMatchingBounded(input(), expected.size.toLong(), listOf(ByteArray(expected.size))))
+    }
+
+    @Test fun fileCopyMatchingUsesOneOpenAndReturnsActualDifferentFormatting() {
+        val expected = "{\"version\":2}".toByteArray()
+        val actual = "{ \"version\" : 2 }".toByteArray()
+        val file = temporary.newFile().apply { writeBytes(expected) }
+        val copies = WorkspaceCopies(temporary.root)
+        var opens = 0
+        assertSame(expected, copies.readBounded(listOf(expected)) { opens++; file.inputStream() })
+        assertEquals(1, opens)
+        file.writeBytes(actual)
+        assertArrayEquals(actual, copies.readBounded(listOf(expected)) { opens++; file.inputStream() })
+        assertEquals(2, opens)
+    }
+
+    @Test fun snapshotWritesUseSmallScratchArraysAndNeverExposeOrMutateSource() {
+        val expected = ByteArray(24_613) { (it * 31).toByte() }
+        val snapshot = expected.copyOf()
+        val received = ByteArrayOutputStream()
+        val output = object : OutputStream() {
+            override fun write(byte: Int) { fail("Expected bounded bulk writes") }
+            override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                assertNotSame(snapshot, bytes)
+                assertTrue(bytes.size <= WorkspaceLimits.IO_BUFFER_BYTES)
+                received.write(bytes, offset, length)
+                bytes.fill(0)
+            }
+        }
+        output.writeSnapshot(snapshot)
+        assertArrayEquals(expected, snapshot)
+        assertArrayEquals(expected, received.toByteArray())
+        output.writeSnapshot(byteArrayOf())
+        val error = IOException("disk full")
+        assertSame(error, assertThrows(IOException::class.java) {
+            object : OutputStream() { override fun write(byte: Int) { throw error } }.writeSnapshot(snapshot)
+        })
     }
 }

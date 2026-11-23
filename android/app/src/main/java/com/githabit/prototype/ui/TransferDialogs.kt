@@ -36,7 +36,7 @@ fun TransferDialogs(vm: GitHabitViewModel, onExport: () -> Unit, onRestore: () -
             TransferButton(stringResource(R.string.transfer_cancel), "cancel-restore", true, vm::cancelRestore)
         }
         is RestoreState.Failed -> TransferDialog(stringResource(R.string.restore_failed), "restore-failed", vm::cancelRestore) {
-            Text(state.message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Text(diagnosticMessage(state.diagnostic), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             Text(stringResource(R.string.transfer_unchanged))
             TransferButton(stringResource(R.string.restore_choose_another), "retry-restore", !locked, onRestore)
             TransferButton(stringResource(R.string.transfer_cancel), "cancel-restore", true, vm::cancelRestore)
@@ -109,9 +109,9 @@ private fun TransferButton(label: String, tag: String, enabled: Boolean, action:
 
 /** The entire dialog scrolls, including actions, in short windows and at 200% text. */
 @Composable
-private fun TransferDialog(title: String, tag: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun TransferDialog(title: String, tag: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().padding(GitHabitSpace.medium), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(GitHabitSpace.medium), contentAlignment = Alignment.Center) {
             Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp,
                 modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = maxHeight).testTag(tag)) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(GitHabitSpace.page),

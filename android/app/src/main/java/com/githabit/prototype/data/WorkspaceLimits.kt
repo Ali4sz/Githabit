@@ -1,6 +1,5 @@
 package com.githabit.prototype.data
 
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -18,6 +17,7 @@ object WorkspaceLimits {
     const val MAX_CONFIGURATIONS = 100_000
     const val MAX_ID_LENGTH = 128
     const val MAX_DEPTH = 8
+    internal const val IO_BUFFER_BYTES = 8192
     // Allocation/CPU guards above the largest supported schema shape. The largest
     // record has eight fields; a selected-weekday version has at most fourteen values.
     internal const val MAX_OBJECT_FIELDS = 16
@@ -28,24 +28,76 @@ object WorkspaceLimits {
     }
 
     /** Reads at most limit+1 bytes; a rejected file is never represented by a truncated prefix. */
-    fun readBounded(input: InputStream, limit: Int = MAX_BYTES): ByteArray {
+    fun readBounded(input: InputStream, limit: Int = MAX_BYTES, knownSize: Long? = null): ByteArray {
         require(limit >= 0)
-        val output = ByteArrayOutputStream(minOf(limit, 8192))
-        val buffer = ByteArray(8192)
+        if (knownSize != null) {
+            return readKnownSize(input, limit, knownSize, emptyList())
+        }
+        val chunks = mutableListOf<ByteArray>()
+        var size = 0
         while (true) {
-            val count = input.read(buffer, 0, minOf(buffer.size.toLong(), limit.toLong() - output.size() + 1).toInt())
-            if (count < 0) break
+            val buffer = ByteArray(minOf(8192L, limit.toLong() - size + 1).toInt())
+            var used = 0
+            var ended = false
+            while (used < buffer.size) {
+                val count = input.read(buffer, used, buffer.size - used)
+                if (count < 0) { ended = true; break }
+                if (count == 0) {
+                    val byte = input.read()
+                    if (byte < 0) { ended = true; break }
+                    buffer[used++] = byte.toByte()
+                } else used += count
+                capacity(size.toLong() + used <= limit, "Workspace exceeds the supported UTF-8 byte limit.")
+            }
+            if (used > 0) { chunks += if (used == buffer.size) buffer else buffer.copyOf(used); size += used }
+            if (ended) break
+        }
+        return ByteArray(size).also { result ->
+            var position = 0
+            for (chunk in chunks) { chunk.copyInto(result, position); position += chunk.size }
+        }
+    }
+
+    /** App-owned files only: aliases require exact independently read bytes and final EOF. */
+    internal fun readMatchingBounded(input: InputStream, knownSize: Long?, expected: List<ByteArray>): ByteArray =
+        if (knownSize != null) readKnownSize(input, MAX_BYTES, knownSize, expected)
+        else readBounded(input).let { actual -> expected.firstOrNull { it.contentEquals(actual) } ?: actual }
+
+    private fun readKnownSize(input: InputStream, limit: Int, size: Long, expected: List<ByteArray>): ByteArray {
+        if (size < 0) throw java.io.IOException("Workspace stream position exceeds its length.")
+        capacity(size <= limit, "Workspace exceeds the supported UTF-8 byte limit.")
+        val length = size.toInt()
+        val matching = expected.filterTo(mutableListOf()) { it.size == length }
+        var prefix = matching.firstOrNull()
+        var result: ByteArray? = if (matching.isEmpty()) ByteArray(length) else null
+        val buffer = ByteArray(minOf(IO_BUFFER_BYTES, length))
+        var position = 0
+        while (position < length) {
+            var count = input.read(buffer, 0, minOf(buffer.size, length - position))
+            if (count < 0) throw java.io.IOException("Workspace changed length while reading.")
             if (count == 0) {
                 val byte = input.read()
-                if (byte < 0) break
-                capacity(output.size() < limit, "Workspace exceeds the supported UTF-8 byte limit.")
-                output.write(byte)
-            } else {
-                capacity(output.size().toLong() + count <= limit, "Workspace exceeds the supported UTF-8 byte limit.")
-                output.write(buffer, 0, count)
+                if (byte < 0) throw java.io.IOException("Workspace changed length while reading.")
+                buffer[0] = byte.toByte()
+                count = 1
             }
+            if (result == null) {
+                matching.removeAll { candidate ->
+                    (0 until count).any { buffer[it] != candidate[position + it] }
+                }
+                if (matching.isEmpty()) {
+                    // The earlier prefix matched every surviving candidate, including prefix.
+                    result = ByteArray(length).also { prefix!!.copyInto(it, 0, 0, position) }
+                } else prefix = matching.first()
+            }
+            result?.let { buffer.copyInto(it, position, 0, count) }
+            position += count
         }
-        return output.toByteArray()
+        if (input.read() != -1) {
+            capacity(length < limit, "Workspace exceeds the supported UTF-8 byte limit.")
+            throw java.io.IOException("Workspace changed length while reading.")
+        }
+        return result ?: matching.first()
     }
 
     fun decodeUtf8(bytes: ByteArray): String {

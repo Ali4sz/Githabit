@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.GitHabitViewModel
@@ -60,10 +62,15 @@ fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
                     false
                 } else true
             })
+        val sheetDescription = stringResource(when (sheetState.currentValue) {
+            SheetValue.Hidden -> R.string.sheet_hidden
+            SheetValue.PartiallyExpanded -> R.string.sheet_partial
+            SheetValue.Expanded -> R.string.sheet_expanded
+        })
         ModalBottomSheet(
             onDismissRequest = { vm.requestDismissForm() },
             sheetState = sheetState,
-            modifier = Modifier.testTag("workspace-sheet").semantics { stateDescription = sheetState.currentValue.name },
+            modifier = Modifier.testTag("workspace-sheet").semantics { stateDescription = sheetDescription },
             containerColor = MaterialTheme.colorScheme.surface,
             dragHandle = { BottomSheetDefaults.DragHandle(Modifier.testTag("sheet-drag-handle")) },
         ) {
@@ -74,8 +81,8 @@ fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
                 Column(Modifier.fillMaxWidth().then(container)
                     .padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Eyebrow("YOUR LOCAL WORKSPACE", Modifier.weight(1f))
-                        IconButton(onClick = { vm.requestDismissForm() }, enabled = !vm.busy, modifier = Modifier.testTag("close-sheet")) { Icon(Icons.Outlined.Close, "Close sheet") }
+                         Eyebrow(stringResource(R.string.sheet_workspace), Modifier.weight(1f))
+                         IconButton(onClick = { vm.requestDismissForm() }, enabled = !vm.busy, modifier = Modifier.focusOutline().testTag("close-sheet")) { Icon(Icons.Outlined.Close, stringResource(R.string.sheet_close)) }
                     }
                     if (vm.discardConfirmation) ConfirmDialog(stringResource(R.string.discard_title),
                         stringResource(R.string.discard_message), stringResource(R.string.discard_action),
@@ -94,45 +101,62 @@ fun WorkspaceSheet(vm: GitHabitViewModel, savedState: SaveableStateHolder) {
 
 @Composable
 private fun RepoForm(vm: GitHabitViewModel, id: String?) {
+    val context = LocalContext.current
+    val locale = displayLocale()
     val habit = vm.workspace.habits.find { it.id == id }
     val form = vm.formState as? FormState.Repo ?: return
     val intendedDate = form.intendedDate.toString()
     val (name, description, target, unit, icon, color) = form.values
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val unitLocked = vm.workspace.commits.any { it.habitId == id }
-    Text(stringResource(if (id == null) R.string.repo_form_new else R.string.repo_form_edit), style = MaterialTheme.typography.headlineMedium)
+    Text(stringResource(if (id == null) R.string.repo_form_new else R.string.repo_form_edit), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
     Subtitle(stringResource(R.string.repo_form_instruction))
-    Subtitle("Changes apply on ${dateLabel(LocalDate.parse(intendedDate))}.")
-    if (id != null && habit == null) Text("This repo is no longer available. Close and reopen the form.", color = MaterialTheme.colorScheme.error)
-    OutlinedTextField(name, { text -> if (text.length <= 48) vm.editRepoForm { it.copy(name = text) } }, modifier = Modifier.fillMaxWidth().testTag("repo-name"),
-        label = { Text("Repo name") }, enabled = !vm.busy, singleLine = true)
-    OutlinedTextField(description, { text -> if (text.length <= 160) vm.editRepoForm { it.copy(description = text) } }, modifier = Modifier.fillMaxWidth(),
-        label = { Text("Your why (optional)") }, enabled = !vm.busy, maxLines = 3)
+    Subtitle(stringResource(R.string.form_changes_date, localizedDateLabel(LocalDate.parse(intendedDate))))
+    if (id != null && habit == null) FormError(stringResource(R.string.form_repo_missing))
+    LegacyTextInput(name, { text -> if (text.length <= 48) vm.editRepoForm { it.copy(name = text) } }, modifier = Modifier.fillMaxWidth().testTag("repo-name"),
+        label = stringResource(R.string.form_repo_name), enabled = !vm.busy, singleLine = true)
+    LegacyTextInput(description, { text -> if (text.length <= 160) vm.editRepoForm { it.copy(description = text) } }, modifier = Modifier.fillMaxWidth(),
+        label = stringResource(R.string.form_repo_why), enabled = !vm.busy, maxLines = 3)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(target, { text -> if (text.length <= 256) vm.editRepoForm { it.copy(target = text) } }, modifier = Modifier.fillMaxWidth().testTag("repo-target"),
-            label = { Text("Daily target") }, enabled = !vm.busy, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-        OutlinedTextField(unit, { text -> if (text.length <= 20) vm.editRepoForm { it.copy(unit = text) } }, modifier = Modifier.fillMaxWidth().testTag("repo-unit"),
-            label = { Text("Unit") }, singleLine = true, enabled = !unitLocked && !vm.busy)
+            label = { Text(stringResource(R.string.form_daily_target)) }, enabled = !vm.busy, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            supportingText = { Text(stringResource(R.string.form_decimal_hint)) })
+        LegacyTextInput(unit, { text -> if (text.length <= 20) vm.editRepoForm { it.copy(unit = text) } }, modifier = Modifier.fillMaxWidth().testTag("repo-unit"),
+            label = stringResource(R.string.form_unit), singleLine = true, enabled = !unitLocked && !vm.busy)
     }
-    if (unitLocked) Subtitle("Units stay fixed after your first commit. Goal changes apply from today; older days keep their target.")
+    if (unitLocked) Subtitle(stringResource(R.string.form_unit_locked))
     ScheduleControls(vm, form)
-    val transition = runCatching {
+    val transition = remember(vm.workspace, id, form.values, form.intendedDate) { runCatching {
         vm.workspace.proposedWeeklyTransition(id, form.values.draft(), form.intendedDate)
-    }.getOrDefault(false)
+    }.getOrDefault(false) }
     if (transition) Text(stringResource(R.string.schedule_transition_explanation),
         modifier = Modifier.testTag("schedule-transition"), style = MaterialTheme.typography.bodyMedium)
-    SectionHeading("Make it recognizable")
+    SectionHeading(stringResource(R.string.form_recognizable))
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         HabitIcon.entries.forEach { candidate ->
             FilledTonalIconToggleButton(checked = icon == candidate, enabled = !vm.busy, onCheckedChange = { vm.editRepoForm { it.copy(icon = candidate) } }) {
-                Icon(habitIcon(candidate), "${candidate.name.lowercase()} icon")
+                Icon(habitIcon(candidate), stringResource(when (candidate) {
+                    HabitIcon.BOOK -> R.string.icon_book
+                    HabitIcon.MOVEMENT -> R.string.icon_movement
+                    HabitIcon.CODE -> R.string.icon_code
+                    HabitIcon.WATER -> R.string.icon_water
+                    HabitIcon.CALM -> R.string.icon_calm
+                    HabitIcon.JOURNAL -> R.string.icon_journal
+                }))
             }
         }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         HabitColor.entries.forEach { candidate ->
             FilterChip(selected = color == candidate, enabled = !vm.busy, onClick = { vm.editRepoForm { it.copy(color = candidate) } },
-                label = { Text(candidate.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                label = { Text(stringResource(when (candidate) {
+                    HabitColor.GREEN -> R.string.color_green
+                    HabitColor.ORANGE -> R.string.color_orange
+                    HabitColor.BLUE -> R.string.color_blue
+                    HabitColor.TEAL -> R.string.color_teal
+                    HabitColor.PURPLE -> R.string.color_purple
+                    HabitColor.PINK -> R.string.color_pink
+                })) },
                 leadingIcon = { Icon(Icons.Outlined.Circle, null, Modifier.size(14.dp), tint = habitColor(candidate)) })
         }
     }
@@ -147,14 +171,14 @@ private fun RepoForm(vm: GitHabitViewModel, id: String?) {
              vm.saveHabit(id, draft, form.intendedDate, reviewedConfiguration = form.reviewedConfiguration,
                  onConfigurationChanged = {
                      vm.reviewFormDate(vm.today)
-                     error = "This repo’s dated configuration changed. Review your draft and save again."
+                      error = context.getString(R.string.form_configuration_review)
                  }) { revised ->
                   vm.reviewFormDate(revised)
-                 error = "The local date changed to ${dateLabel(revised)}. Review your draft and save again."
+                  error = context.getString(R.string.form_date_review, dateLabel(revised, locale))
              }
         } catch (invalid: IllegalArgumentException) { error = invalid.message }
     }, enabled = !vm.busy && (id == null || habit != null), modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-repo")) {
-        Text(if (id == null) "Create repo" else "Save changes")
+         Text(stringResource(if (id == null) R.string.form_create else R.string.form_save))
     }
 }
 
@@ -190,7 +214,7 @@ private fun ScheduleControls(vm: GitHabitViewModel, form: FormState.Repo) {
                                     it.copy(weekdayMask = if (selected) it.weekdayMask or bit else it.weekdayMask and bit.inv())
                                 } }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked, onCheckedChange = null, enabled = !vm.busy)
-                            Text(day.getDisplayName(TextStyle.FULL, Locale.ENGLISH), Modifier.weight(1f).padding(start = 12.dp))
+                             Text(weekdayLabel(day), Modifier.weight(1f).padding(start = 12.dp))
                         }
                     }
                 }
@@ -225,7 +249,7 @@ private fun SelectionRow(label: String, selected: Boolean, enabled: Boolean, tag
 
 @Composable
 private fun FormError(message: String) {
-    Text(message, Modifier.fillMaxWidth().testTag("form-error").semantics { liveRegion = LiveRegionMode.Polite },
+    Text(diagnosticMessage(message), Modifier.fillMaxWidth().testTag("form-error").semantics { liveRegion = LiveRegionMode.Polite },
         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
 }
 
@@ -236,47 +260,51 @@ private fun SavingFeedback() {
 
 @Composable
 private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
+    val context = LocalContext.current
+    val locale = displayLocale()
     val habit = vm.workspace.habits.find { it.id == overlay.habitId }
     if (habit == null) {
-        Text("This repo is no longer available. Close and reopen the form.", color = MaterialTheme.colorScheme.error)
+        FormError(stringResource(R.string.form_repo_missing))
         return
     }
     val commit = vm.workspace.commits.find { it.id == overlay.commitId }
     val correcting = overlay.commitId != null
     val form = vm.formState as? FormState.Log ?: return
     val day = form.intendedDate
-    val progress = vm.workspace.progress(habit, day)
+    val index = vm.analytics
+    val daily = remember(index, habit.id, day) { index.daily(habit.id, day) }
+    val progress = daily.progress
     val (amount, note) = form.values
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var removeConfirmation by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         HabitGlyph(habit, 48)
         Column(Modifier.weight(1f)) {
-            Text(if (!correcting) "Make a small commit" else "Correct a commit", style = MaterialTheme.typography.titleLarge)
-            Subtitle(habit.name)
+            Text(stringResource(if (!correcting) R.string.form_log_title else R.string.form_correct_title), style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() })
+            Subtitle(displayPreview(habit.name))
         }
     }
-    Subtitle("${dateLabel(day)} · ${formatAmount(progress.total)} / ${formatAmount(progress.target)} ${habit.unit}")
-    if (correcting && commit == null) Text("This commit is no longer available. Your draft was not saved as new progress.", color = MaterialTheme.colorScheme.error)
-    OutlinedTextField(amount, { text -> if (text.length <= 256) vm.editLogForm { it.copy(amount = text) } }, label = { Text("Amount (${habit.unit})") }, singleLine = true, enabled = !vm.busy,
+    Subtitle(stringResource(R.string.form_log_summary, localizedDateLabel(day), amountLabel(progress.total), amountLabel(progress.target ?: habit.versions.first().target), displayPreview(habit.unit)))
+    if (correcting && commit == null) FormError(stringResource(R.string.form_commit_missing))
+    OutlinedTextField(amount, { text -> if (text.length <= 256) vm.editLogForm { it.copy(amount = text) } }, label = { Text(stringResource(R.string.form_amount, displayPreview(habit.unit))) }, singleLine = true, enabled = !vm.busy,
         modifier = Modifier.fillMaxWidth().testTag("commit-amount"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        supportingText = { Text("Partial progress counts. Decimals are welcome.") })
-    if (!correcting && progress.remaining > 0) AssistChip(enabled = !vm.busy, onClick = { vm.editLogForm { it.copy(amount = editableAmount(progress.remaining)) } },
+        supportingText = { Text(stringResource(R.string.form_decimal_hint)) })
+    val remaining = progress.remaining ?: 0.0
+    if (!correcting && remaining > 0) AssistChip(enabled = !vm.busy, onClick = { vm.editLogForm { it.copy(amount = editableAmount(remaining)) } },
         modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline().testTag("commit-remaining"),
-        label = { Text(stringResource(R.string.log_remaining_amount, formatAmount(progress.remaining), habit.unit)) }, leadingIcon = { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) })
+        label = { Text(stringResource(R.string.log_remaining_amount, amountLabel(remaining), displayPreview(habit.unit))) }, leadingIcon = { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) })
     if (!correcting) Subtitle(stringResource(R.string.log_remaining_instruction))
     if (!correcting && day == vm.today) {
-        val index = vm.analytics
-        val daily = remember(index, habit.id, day) { index.daily(habit.id, day) }
         if (daily.configuration?.schedule is HabitSchedule.WeeklyQuota) {
             val weekly = remember(index, habit.id, day) { index.weekly(habit.id, day) }
             WeekPeriodSummary(weekly.period)
             TodayWeeklyContext(TodayHabit(habit.id, daily, weekly))
         }
     }
-    OutlinedTextField(note, { text -> if (text.length <= 200) vm.editLogForm { it.copy(note = text) } }, label = { Text("Commit message (optional)") },
+    OutlinedTextField(note, { text -> if (text.length <= 200) vm.editLogForm { it.copy(note = text) } }, label = { Text(stringResource(R.string.form_note)) },
         placeholder = { Text(stringResource(R.string.commit_note_instruction)) }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().testTag("commit-note"),
-        minLines = 2, maxLines = 4, supportingText = { Text("${note.length} / 200") })
+        minLines = 2, maxLines = 4, supportingText = { Text(stringResource(R.string.form_character_count, note.length, 200)) })
     error?.let { FormError(it) }
     if (vm.formSaveFailed && error == null) FormError(stringResource(R.string.form_save_failed))
     if (vm.busy) SavingFeedback()
@@ -286,25 +314,25 @@ private fun LogForm(vm: GitHabitViewModel, overlay: Overlay.LogForm) {
             error = null
             vm.saveCommit(habit.id, overlay.commitId, value, note, day) { revised ->
                 vm.reviewFormDate(revised)
-                error = "The local date changed to ${dateLabel(revised)}. Review your draft and submit again."
+                 error = context.getString(R.string.form_date_review, dateLabel(revised, locale))
             }
         }
         catch (invalid: IllegalArgumentException) { error = invalid.message }
     }, enabled = !vm.busy && (!correcting || commit != null), modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag("save-commit")) {
-        Icon(Icons.Outlined.Commit, null); Spacer(Modifier.width(8.dp)); Text(if (!correcting) "Commit progress" else "Save correction")
+        Icon(Icons.Outlined.Commit, null); Spacer(Modifier.width(8.dp)); Text(stringResource(if (!correcting) R.string.form_commit else R.string.form_correction))
     }
     if (commit != null) {
         TextButton(onClick = { removeConfirmation = true }, enabled = !vm.busy,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text("Delete this commit") }
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch).focusOutline()) { Text(stringResource(R.string.form_delete)) }
     }
-    if (removeConfirmation && commit != null) ConfirmDialog("Remove this commit?", "Your totals and heatmaps will update. You can undo this change.",
-        "Delete commit", destructive = true, onDismiss = { removeConfirmation = false },
+    if (removeConfirmation && commit != null) ConfirmDialog(stringResource(R.string.form_delete_title), stringResource(R.string.form_delete_message),
+        stringResource(R.string.form_delete_confirm), destructive = true, onDismiss = { removeConfirmation = false },
         onConfirm = { removeConfirmation = false; vm.removeCommit(commit.id) })
 }
 
 @Composable
 private fun Guide(onDone: () -> Unit) {
-    Text(stringResource(R.string.guide_title), style = MaterialTheme.typography.headlineMedium)
+    Text(stringResource(R.string.guide_title), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
     listOf(
         R.string.guide_create_title to R.string.guide_create,
         R.string.guide_log_title to R.string.guide_log,
@@ -317,8 +345,10 @@ private fun Guide(onDone: () -> Unit) {
 @Composable
 fun ConfirmDialog(title: String, message: String, confirmLabel: String, destructive: Boolean = false,
     onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm, colors = ButtonDefaults.textButtonColors(
-            contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    TransferDialog(title, "confirmation-dialog", onDismiss) {
+        Text(message)
+        TextButton(onClick = onConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch).focusOutline(),
+            colors = ButtonDefaults.textButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) { Text(confirmLabel) }
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = GitHabitSize.minimumTouch).focusOutline()) { Text(stringResource(R.string.transfer_cancel)) }
+    }
 }

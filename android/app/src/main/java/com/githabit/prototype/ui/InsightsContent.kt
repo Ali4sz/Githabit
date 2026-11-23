@@ -57,7 +57,7 @@ internal fun InsightsContent(vm: GitHabitViewModel) {
                         OutlinedButton(onClick = { vm.overlay = Overlay.Day(date.date) }, enabled = date.date >= bounds.first && date.date <= bounds.second,
                             modifier = Modifier.fillMaxWidth()
                             .heightIn(min = GitHabitSize.minimumTouch).focusOutline().testTag("inspect-${date.date}")) {
-                            Text(pluralStringResource(R.plurals.insights_date_count, date.activityCount, dateLabel(date.date), date.activityCount))
+                            Text(pluralStringResource(R.plurals.insights_date_count, date.activityCount, localizedDateLabel(date.date), date.activityCount))
                         }
                     }
                 }
@@ -68,7 +68,7 @@ internal fun InsightsContent(vm: GitHabitViewModel) {
                 val habit = analytics.habit(week.habitId)
                 val repoAdherence = remember(analytics, period, habit.id) { analytics.adherence(period.start, period.endExclusive, habit.id) }
                 Panel(Modifier.fillMaxWidth()) {
-                    SectionHeading(habit.name)
+                    SectionHeading(displayPreview(habit.name))
                     if (week.days.any { it.configuration?.schedule is HabitSchedule.WeeklyQuota }) WeeklyHistorySummary(week)
                     Text(if (repoAdherence.days.assessedDates == 0) stringResource(R.string.history_days_unavailable)
                         else stringResource(R.string.history_day_adherence, repoAdherence.days.achievedDates, repoAdherence.days.assessedDates))
@@ -81,9 +81,9 @@ internal fun InsightsContent(vm: GitHabitViewModel) {
             }
             item(key = "heatmap", contentType = "chart") { Heatmap(vm.workspace, vm.today, analytics = analytics) { vm.overlay = Overlay.Day(it) } }
             item(key = "streaks", contentType = "summary") {
-                StatsRow(listOf(Triple(stringResource(R.string.history_activity_streak), "${streaks.current}", stringResource(R.string.history_days)),
-                    Triple(stringResource(R.string.history_longest_streak), "${streaks.longest}", stringResource(R.string.history_days)),
-                    Triple(stringResource(R.string.history_total_commits), "${analytics.commits.history().size}", "")))
+                StatsRow(listOf(Triple(stringResource(R.string.history_activity_streak), pluralStringResource(R.plurals.schedule_day_count, streaks.current, streaks.current), ""),
+                    Triple(stringResource(R.string.history_longest_streak), pluralStringResource(R.plurals.schedule_day_count, streaks.longest, streaks.longest), ""),
+                    Triple(stringResource(R.string.history_total_commits), amountLabel(analytics.commits.history().size.toDouble()), "")))
                 Subtitle(stringResource(R.string.history_streak_explanation))
             }
         }

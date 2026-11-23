@@ -174,6 +174,7 @@ class WorkspaceRecoveryTest {
                 if (fail && attempted) throw IOException("injected verification failure")
                 return real.readBytes()
             }
+            override fun readBytesMatching(expected: List<ByteArray>): ByteArray? = super<WorkspaceFileAccess>.readBytesMatching(expected)
             override fun writeBytes(bytes: ByteArray) {
                 if (fail) { attempted = true; throw IOException("injected write/rollback failure") }
                 real.writeBytes(bytes)

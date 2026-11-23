@@ -58,7 +58,7 @@ internal fun ColumnScope.DayDetails(vm: GitHabitViewModel, overlay: Overlay.Day)
         item(key = "date-controls", contentType = "controls") {
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 Text(stringResource(R.string.history_date_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-                Text(dateLabel(day), style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("inspected-date").semantics { liveRegion = LiveRegionMode.Polite })
+                Text(localizedDateLabel(day), style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("inspected-date").semantics { liveRegion = LiveRegionMode.Polite })
                 if (day > vm.today) Text(stringResource(R.string.history_future_record))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                     OutlinedButton(onClick = { move(day.minusDays(1)) }, enabled = day > bounds.first && !vm.busy,
@@ -74,11 +74,11 @@ internal fun ColumnScope.DayDetails(vm: GitHabitViewModel, overlay: Overlay.Day)
                     if (parsed == null || parsed < bounds.first || parsed > bounds.second) error = true
                     else { error = false; move(parsed) }
                 }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().focusOutline().testTag("explore-go")) { Text(stringResource(R.string.history_go)) }
-                Subtitle(stringResource(R.string.history_inspection_bounds, dateLabel(bounds.first), dateLabel(bounds.second)))
+                Subtitle(stringResource(R.string.history_inspection_bounds, localizedDateLabel(bounds.first), localizedDateLabel(bounds.second)))
                 if (error) Text(stringResource(R.string.history_date_error), color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 WeekPeriodSummary(summary.period)
-                Subtitle(stringResource(R.string.history_period_convention, summary.period.weekStart.getDisplayName(TextStyle.FULL, Locale.getDefault())))
+                Subtitle(stringResource(R.string.history_period_convention, weekdayLabel(summary.period.weekStart)))
                 Text(pluralStringResource(R.plurals.history_commits, summary.activityCount, summary.activityCount))
             }
         }

@@ -167,14 +167,14 @@ class ScheduleFormTest {
         compose.onNodeWithText("Discard unsaved changes?").assertExists()
         compose.onNodeWithText("Cancel").performClick()
         compose.waitUntil(15_000) { compose.onNodeWithTag("workspace-sheet").fetchSemanticsNode()
-            .config[SemanticsProperties.StateDescription] == "Expanded" }
+            .config[SemanticsProperties.StateDescription] == context.getString(R.string.sheet_expanded) }
         // The scrim has its own semantic close action; exclude the form's close IconButton.
         compose.onNode(hasContentDescription("Close sheet") and !hasAnyAncestor(hasTestTag("close-sheet")),
             useUnmergedTree = true).performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("Discard unsaved changes?").assertExists()
         compose.onNodeWithText("Cancel").performClick()
         compose.waitUntil(15_000) { compose.onNodeWithTag("workspace-sheet").fetchSemanticsNode()
-            .config[SemanticsProperties.StateDescription] == "Expanded" }
+            .config[SemanticsProperties.StateDescription] == context.getString(R.string.sheet_expanded) }
         // Drag the sheet's handle rather than the scrollable form.
         compose.onNodeWithTag("sheet-drag-handle", useUnmergedTree = true).performTouchInput { swipeDown(endY = height + 1000f, durationMillis = 200) }
         compose.waitForIdle()

@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.*
 import com.githabit.prototype.R
@@ -29,7 +30,7 @@ fun RecoveryScreen(state: WorkspaceLoad.Recovery, canSaveCopy: Boolean, busy: Bo
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.CloudOff, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.error)
             Text(stringResource(R.string.recovery_title), style = MaterialTheme.typography.headlineMedium)
-            Subtitle(state.reason)
+            Subtitle(diagnosticMessage(state.diagnostic))
         }
         Panel {
             SectionHeading(stringResource(R.string.recovery_meaning))
@@ -160,7 +161,7 @@ internal fun RepoListContent(vm: GitHabitViewModel, modifier: Modifier = Modifie
 fun DetailScreen(vm: GitHabitViewModel) {
     val state = vm.workspace
     val habit = state.habits.find { it.id == vm.selectedRepoId }
-    if (habit == null) { EmptyState("This repo isn’t here.", "Return to your repositories to choose another habit."); return }
+    if (habit == null) { EmptyState(stringResource(R.string.repo_missing_title), stringResource(R.string.repo_missing_description)); return }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxSize().testTag("repo-detail-pane"), state = rememberLazyListState(),
             contentPadding = PaddingValues(horizontal = GitHabitSpace.page, vertical = GitHabitSpace.section),
@@ -184,12 +185,12 @@ internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) 
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HabitGlyph(habit, 48)
-                Text(habit.name, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                Text(displayPreview(habit.name), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             }
-            if (habit.description.isNotBlank()) Subtitle(habit.description)
+            if (habit.description.isNotBlank()) Subtitle(displayPreview(habit.description))
             ScheduleSummary(state, habit, vm.today, vm.analytics)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusBadge(status?.name?.lowercase() ?: stringResource(R.string.history_before_creation), status == RepoStatus.ACTIVE)
+             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
+                 StatusBadge(status?.let { repoStatusLabel(it) } ?: stringResource(R.string.history_before_creation), status == RepoStatus.ACTIVE)
                 OutlinedButton(onClick = { vm.overlay = Overlay.RepoForm(habit.id) }) {
                     Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)); Text(stringResource(R.string.history_edit_repo))
                 }
@@ -197,7 +198,7 @@ internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) 
         }
         Panel {
             SectionHeading(stringResource(R.string.history_today_progress))
-            Text(formatAmount(progress.total), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.testTag("detail-total"))
+             Text(amountLabel(progress.total), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.testTag("detail-total"))
             val week = remember(analytics, habit.id) { analytics.weekly(habit.id, vm.today) }
             DailyHistorySummary(habit, daily, vm.today, week)
             LinearProgressIndicator(progress = { (progress.ratio ?: 0.0).toFloat() },
@@ -224,9 +225,9 @@ internal fun ColumnScope.RepoDetailContent(vm: GitHabitViewModel, habit: Habit) 
         }
         Heatmap(state, vm.today, habit.id, analytics) { vm.overlay = Overlay.Day(it, habit.id) }
         val streaks = remember(analytics, habit.id) { analytics.commits.activityStreaks(vm.today, habit.id) }
-        StatsRow(listOf(Triple(stringResource(R.string.history_activity_streak), "${streaks.current}", stringResource(R.string.history_days)),
-            Triple(stringResource(R.string.history_longest_streak), "${streaks.longest}", stringResource(R.string.history_days)),
-            Triple(stringResource(R.string.history_total_commits), "${analytics.commits.history(habit.id).size}", "")))
+         StatsRow(listOf(Triple(stringResource(R.string.history_activity_streak), pluralStringResource(R.plurals.schedule_day_count, streaks.current, streaks.current), ""),
+             Triple(stringResource(R.string.history_longest_streak), pluralStringResource(R.plurals.schedule_day_count, streaks.longest, streaks.longest), ""),
+             Triple(stringResource(R.string.history_total_commits), amountLabel(analytics.commits.history(habit.id).size.toDouble()), "")))
         Subtitle(stringResource(R.string.history_streak_explanation))
     if (archiveConfirmation) ConfirmDialog(stringResource(R.string.history_archive_title), stringResource(R.string.history_archive_message),
         stringResource(R.string.history_archive), onDismiss = { archiveConfirmation = false }, onConfirm = { archiveConfirmation = false; vm.status(habit.id, RepoStatus.ARCHIVED) })

@@ -20,6 +20,7 @@ class WorkspaceCapacityStorageTest {
             if (primaryTooLarge) throw WorkspaceFileCapacityException(if (preservationFails) null else archive)
             return backing.readBytes()
         }
+        override fun readBytesMatching(expected: List<ByteArray>): ByteArray? = super<WorkspaceFileAccess>.readBytesMatching(expected)
         override fun lastGoodBytes(): ByteArray? {
             if (backupTooLarge) throw WorkspaceFileCapacityException(if (preservationFails) null else archive)
             return backing.lastGoodBytes()
@@ -105,6 +106,7 @@ class WorkspaceCapacityStorageTest {
         val archive = temporary.newFile().apply { writeText("unfinished first write") }
         val access = object : WorkspaceFileAccess by backing {
             override fun readBytes(): ByteArray? = backing.stored ?: throw WorkspaceFileReadException(archive, true, java.io.IOException("only .new"))
+            override fun readBytesMatching(expected: List<ByteArray>): ByteArray? = super<WorkspaceFileAccess>.readBytesMatching(expected)
             override fun copyRecoveryTo(file: File, output: OutputStream) { output.write(file.readBytes()) }
         }
         val store = WorkspaceStore(access)

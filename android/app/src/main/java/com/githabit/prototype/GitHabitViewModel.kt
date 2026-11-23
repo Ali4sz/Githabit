@@ -24,7 +24,6 @@ import com.githabit.prototype.data.WorkspaceStore
 import com.githabit.prototype.data.WriteOutcome
 import com.githabit.prototype.data.RestoreDocument
 import com.githabit.prototype.data.RecoverySnapshot
-import com.githabit.prototype.data.workspaceDigest
 import com.githabit.prototype.domain.*
 import java.time.LocalDate
 import java.time.DayOfWeek
@@ -55,7 +54,10 @@ sealed interface Overlay {
     data class Day(val date: LocalDate, val habitId: String? = null, val focusCommitId: String? = null) : Overlay
     data object Guide : Overlay
 }
-data class Notice(val message: String, val undoId: String? = null)
+data class Notice(val diagnostic: Diagnostic, val undoId: String? = null) {
+    /** Stable English assertion/technical compatibility; UI renders diagnostic instead. */
+    val message get() = diagnostic.english
+}
 
 /** Small rendered-action token; never stored in saved state or trusted as mutation input. */
 data class TodayAction(val session: Int, val date: LocalDate, val habit: Habit, val summary: TodayHabit)
@@ -64,7 +66,9 @@ data class TodayAction(val session: Int, val date: LocalDate, val habit: Habit, 
 sealed interface WorkspaceLoad {
     data object Loading : WorkspaceLoad
     data class Ready(val isNew: Boolean) : WorkspaceLoad
-    data class Recovery(val kind: UnreadableKind, val reason: String, val preserved: Boolean) : WorkspaceLoad
+    data class Recovery(val kind: UnreadableKind, val diagnostic: Diagnostic, val preserved: Boolean) : WorkspaceLoad {
+        val reason get() = diagnostic.english
+    }
 }
 
 class GitHabitViewModel(
@@ -241,7 +245,7 @@ class GitHabitViewModel(
                         undos.clear()
                         publishNavigation(navigation.validated(result.workspace.habits.mapTo(mutableSetOf()) { it.id }))
                     } else uncertainUndoId?.takeIf { it in undos }?.let {
-                        noticeChannel.trySend(Notice("The previous workspace was verified. Undo did not commit; you can retry.", it))
+                        noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.UNDO_RETRY), it))
                     }
                 }
                 uncertainReplacements.clear()
@@ -259,7 +263,7 @@ class GitHabitViewModel(
             }
             is WorkspaceLoadResult.Unreadable -> {
                 // Keep the last committed snapshot for reconciliation; ordinary UI is gated.
-                load = WorkspaceLoad.Recovery(result.kind, result.reason, result.preserved)
+                load = WorkspaceLoad.Recovery(result.kind, Diagnostic.Storage(result.message), result.preserved)
             }
         }
         if (load is WorkspaceLoad.Ready) validateNavigation()
@@ -305,7 +309,7 @@ class GitHabitViewModel(
 
     /** Internal command seam; public document replacement requires preview-bound consent. */
     internal fun replaceWorkspace(candidate: Workspace, fromRecovery: Boolean = false,
-        consent: (() -> Boolean)? = null, successMessage: String? = null) {
+        consent: (() -> Boolean)? = null, successMessage: Diagnostic? = null) {
         if (busy || (if (fromRecovery) load !is WorkspaceLoad.Recovery else load !is WorkspaceLoad.Ready)) return
         busy = true
         viewModelScope.launch {
@@ -320,15 +324,15 @@ class GitHabitViewModel(
                                 clearTransientState()
                                 load = WorkspaceLoad.Ready(isNew = candidate == Workspace())
                                 refreshDate()
-                                noticeChannel.trySend(Notice(successMessage ?: "Workspace replaced. Any previous data was preserved on this device before replacement."))
+                                noticeChannel.trySend(Notice(successMessage ?: Diagnostic.Fixed(MessageId.REPLACED)))
                             } catch (_: Exception) {
-                                noticeChannel.trySend(Notice("The replacement was saved. Reopen GitHabit to refresh the screen."))
+                                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.REPLACEMENT_REFRESH)))
                             }
                         }
                     }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    noticeChannel.trySend(Notice("Could not prepare the replacement. Nothing was replaced."))
+                    noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.REPLACEMENT_FAILED)))
                 } finally { busy = false }
             }
         }
@@ -374,7 +378,7 @@ class GitHabitViewModel(
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice("Calendar activation could not be saved. Your history was not replaced; try again."))
+                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.CALENDAR_FAILED)))
             } finally { calendarRefreshQueued = false }
         }
     }
@@ -480,7 +484,7 @@ class GitHabitViewModel(
                 val expected = strings[index].substringAfterLast(':')
                 if (textFingerprint(source) == expected) source else {
                     formSaveFailed = true
-                    noticeChannel.trySend(Notice("An unchanged legacy field changed on disk. Your other draft inputs were retained; review the current field and save again."))
+                    noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.LEGACY_CHANGED)))
                     if (index in listOf(3, 4, 6)) text else source
                 }
             } else text
@@ -578,12 +582,12 @@ class GitHabitViewModel(
     }
 
     private fun update(
-        message: String? = null,
-        resultMessage: (suspend (Workspace, Workspace, CommandTime) -> String)? = null,
+        message: Diagnostic? = null,
+        resultMessage: (suspend (Workspace, Workspace, CommandTime) -> Diagnostic)? = null,
         dated: Boolean = false,
         dismiss: Boolean = false,
         intendedDate: LocalDate? = null,
-        dateChangedMessage: ((LocalDate) -> String)? = null,
+        dateChangedMessage: ((LocalDate) -> Diagnostic)? = null,
         onDateChanged: (LocalDate) -> Unit = {},
         undo: ((Workspace, Workspace, CommandTime) -> UndoRecord)? = null,
         after: () -> Unit = {},
@@ -605,7 +609,7 @@ class GitHabitViewModel(
                     if (intendedDate != null && intendedDate != time.date) {
                         onDateChanged(time.date)
                         noticeChannel.trySend(Notice(dateChangedMessage?.invoke(time.date)
-                            ?: "The local date changed to ${time.date}. Review your draft and submit again; nothing was saved."))
+                            ?: Diagnostic.DateChanged(time.date)))
                         return@withLock
                     }
                     val committedBefore = workspace
@@ -620,7 +624,7 @@ class GitHabitViewModel(
                         }
                         if (dismiss) finishOverlay(dismissOverlay)
                         try { afterUnchanged() } catch (_: Exception) {
-                            noticeChannel.trySend(Notice("Your saved data is unchanged, but the screen could not be updated. Reopen it."))
+                            noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.UNCHANGED_REFRESH)))
                         }
                         return@withLock
                     }
@@ -636,17 +640,18 @@ class GitHabitViewModel(
                             val undoId = inverse?.let { registerUndo(it) }
                             try {
                                 after()
-                                successMessage?.let { noticeChannel.trySend(Notice(if (dated) "$it Date: ${time.date}." else it, undoId)) }
+                                successMessage?.let { noticeChannel.trySend(Notice(if (dated) Diagnostic.Dated(it, time.date) else it, undoId)) }
                             } catch (_: Exception) {
-                                noticeChannel.trySend(Notice("Your change was saved, but the screen could not be updated. Reopen it."))
+                                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.SAVED_REFRESH)))
                             }
                         } else if (dismiss) formSaveFailed = true
                     }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     if (dismiss) formSaveFailed = true
-                    noticeChannel.trySend(Notice(if (error is IllegalArgumentException) error.message ?: "Check your entry."
-                        else "Could not prepare your change. Please try again.",
+                    noticeChannel.trySend(Notice(if (error is RepoBeforeCreation) Diagnostic.BeforeCreation(error.date)
+                        else if (error is IllegalArgumentException) error.message?.let(Diagnostic::External) ?: Diagnostic.Fixed(MessageId.CHECK_ENTRY)
+                        else Diagnostic.Fixed(MessageId.PREPARE_FAILED),
                         retryUndoId.takeUnless { error is UndoConflict && !error.retryable }))
                 } finally { busy = false }
             }
@@ -698,7 +703,7 @@ class GitHabitViewModel(
                 // Recovery replacement's verified prior file can differ from the published
                 // snapshot. Only reload may reconcile it; do not discard candidate evidence.
                 if (load is WorkspaceLoad.Ready) reconcileCalendarObservation()
-                noticeChannel.trySend(Notice("The change was not saved. The previous file was verified; you can retry.", retryUndoId))
+                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.ROLLBACK), retryUndoId))
                 false
             }
             WriteOutcome.Indeterminate -> {
@@ -708,29 +713,42 @@ class GitHabitViewModel(
                 if (retryUndoId != null) uncertainUndoId = retryUndoId
                 load = WorkspaceLoad.Recovery(
                     UnreadableKind.INDETERMINATE,
-                    "The result of your last change could not be verified on disk. GitHabit paused to protect your history.",
+                    Diagnostic.Fixed(MessageId.RECOVERY_INDETERMINATE),
                     preserved = store.recoveryPreserved,
                 )
-                noticeChannel.trySend(Notice("The save outcome is unknown. Re-read storage before making further changes."))
+                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.INDETERMINATE)))
                 false
             }
             WriteOutcome.Blocked -> {
-                load = WorkspaceLoad.Recovery(UnreadableKind.IO, "Storage must be re-read before saving.", store.recoveryPreserved)
+                load = WorkspaceLoad.Recovery(UnreadableKind.IO, Diagnostic.Fixed(MessageId.STORAGE_REREAD), store.recoveryPreserved)
                 false
             }
             is WriteOutcome.Rejected -> {
                 if (load is WorkspaceLoad.Ready) reconcileCalendarObservation()
-                noticeChannel.trySend(Notice(outcome.reason, retryUndoId))
+                noticeChannel.trySend(Notice(Diagnostic.Storage(outcome.message), retryUndoId))
                 false
             }
         }
     }
 
     /** Canonical v2 encoding aligns value-equivalent loaded JSON with confirmed candidates. IO only. */
-    private fun workspaceFingerprint(candidate: Workspace): String = workspaceDigest(WorkspaceJson.encode(candidate))
+    private fun workspaceFingerprint(candidate: Workspace): String = WorkspaceJson.fingerprint(candidate)
 
-    private fun textFingerprint(text: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun textFingerprint(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        java.security.DigestOutputStream(object : java.io.OutputStream() {
+            override fun write(value: Int) = Unit
+            override fun write(bytes: ByteArray, offset: Int, length: Int) = Unit
+        }, digest).writer(Charsets.UTF_8).use { writer ->
+            var offset = 0
+            while (offset < text.length) {
+                val count = minOf(4096, text.length - offset)
+                writer.write(text, offset, count)
+                offset += count
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
     private fun entityFingerprint(habit: Habit): String = workspaceFingerprint(Workspace(habits = listOf(habit)))
     private fun entityFingerprint(commit: Commit): String = textFingerprint(listOf(commit.id, commit.habitId,
         commit.date.toString(), editableFormAmount(commit.amount), commit.note).joinToString("") { "${it.length}:$it" })
@@ -766,7 +784,7 @@ class GitHabitViewModel(
         }.getOrNull()
         form?.let { publishForm(it.copy(submitted = true, submittedEntity = candidate)) }
         update(
-        message = if (id == null) "Your new repo is ready. Start with a small commit." else "Repo updated. Keep growing.",
+        message = Diagnostic.Fixed(if (id == null) MessageId.NEW_REPO else MessageId.UPDATED_REPO),
         dated = true, dismiss = true, intendedDate = intendedDate, onDateChanged = onDateChanged,
     ) { it, time ->
         if (id != null && form?.reviewedEntity != null && it.habits.find { habit -> habit.id == id }?.let(::entityFingerprint) != form.reviewedEntity) {
@@ -798,7 +816,7 @@ class GitHabitViewModel(
         form?.let { publishForm(it.copy(submitted = true, submittedEntity = candidate)) }
         var preparedIndex: ProgressAnalytics? = null
         var preparedWorkspace: Workspace? = null
-        update(message = if (commitId == null) "Progress committed. That’s a little win." else "Commit corrected.",
+        update(message = Diagnostic.Fixed(if (commitId == null) MessageId.COMMITTED else MessageId.CORRECTED),
             resultMessage = if (commitId == null && destination == Destination.TODAY) { _, next, time ->
                 fun row(index: ProgressAnalytics): TodayHabit {
                     val daily = index.daily(habitId, time.date)
@@ -812,9 +830,8 @@ class GitHabitViewModel(
                 val remainingKinds = setOf(TodayGroupKind.SCHEDULED, TodayGroupKind.WEEKLY_REMAINING)
                 val wasRemaining = previous.groupKind in remainingKinds
                 val isRemaining = current.groupKind in remainingKinds
-                val name = next.habits.first { it.id == habitId }.name
-                if (wasRemaining && !isRemaining) "Progress saved for $name. ${if (current.weekly?.quota?.remainingDays == 0) "Weekly quota" else "Today’s target"} reached; moved out of Remaining."
-                else "Progress saved for $name."
+                Diagnostic.Progress(next.habits.first { it.id == habitId }.name,
+                    if (wasRemaining && !isRemaining) { if (current.weekly?.quota?.remainingDays == 0) Reached.WEEKLY else Reached.DAILY } else null)
             } else null,
             after = {
                 preparedIndex?.takeIf { preparedWorkspace === workspace && it.today == today }?.let {
@@ -841,7 +858,7 @@ class GitHabitViewModel(
 
     fun complete(habitId: String) {
         val id = UUID.randomUUID().toString()
-        update(message = "Daily goal reached. A little win worth keeping.", dated = true, undo = { before, after, time ->
+        update(message = Diagnostic.Fixed(MessageId.COMPLETED), dated = true, undo = { before, after, time ->
             commitUndo(before, after, id, time)
         }) { it, time -> it.completeGoal(habitId, time.date, id, time.instant) }
     }
@@ -859,8 +876,7 @@ class GitHabitViewModel(
         }
     }
 
-    private fun todayDateChanged(date: LocalDate) =
-        "The local date changed to $date. Review Today and tap again; nothing was saved."
+    private fun todayDateChanged(date: LocalDate): Diagnostic = Diagnostic.DateChanged(date, todayAction = true)
 
     /** Log opens an empty retained draft, only after the rendered date/entity are revalidated. */
     fun openTodayLog(action: TodayAction) {
@@ -880,7 +896,7 @@ class GitHabitViewModel(
                     }
                 }
             } catch (error: IllegalArgumentException) {
-                noticeChannel.trySend(Notice(requireNotNull(error.message)))
+                noticeChannel.trySend(Notice(Diagnostic.External(requireNotNull(error.message))))
             } finally { busy = false }
         }
     }
@@ -888,7 +904,7 @@ class GitHabitViewModel(
     /** Quick Complete never silently moves to a date other than the one rendered. */
     fun completeToday(action: TodayAction) {
         val id = UUID.randomUUID().toString()
-        update(message = "Today’s remaining target saved for ${action.habit.name}.", dated = true,
+        update(message = Diagnostic.Progress(action.habit.name, complete = true), dated = true,
             intendedDate = action.date, dateChangedMessage = ::todayDateChanged,
             undo = { before, after, time -> commitUndo(before, after, id, time) }) { it, time ->
             validateTodayAction(action)
@@ -896,12 +912,12 @@ class GitHabitViewModel(
         }
     }
 
-    fun removeCommit(id: String) = update(message = "Commit removed.", dismiss = true, undo = { before, after, time ->
+    fun removeCommit(id: String) = update(message = Diagnostic.Fixed(MessageId.REMOVED), dismiss = true, undo = { before, after, time ->
         commitUndo(before, after, id, time)
     }) { it, _ -> it.removeCommit(id) }
 
     fun status(id: String, status: RepoStatus) {
-        update(message = "Repo ${if (status == RepoStatus.ACTIVE) "resumed" else status.name.lowercase()}. Your history is safe.",
+        update(message = Diagnostic.Status(status),
             dated = true, undo = { before, _, time ->
                 val habit = before.habits.first { it.id == id }
                 StatusUndo(time, id, habit.createdOn, requireNotNull(habit.versionOn(time.date)), status)
@@ -910,10 +926,10 @@ class GitHabitViewModel(
 
     fun undo(id: String) {
         if (load !is WorkspaceLoad.Ready) {
-            noticeChannel.trySend(Notice("Undo is paused. Re-read storage before trying again."))
+            noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.UNDO_PAUSED)))
             return
         }
-        update(message = "Undone. You’re all set.", retryUndoId = id,
+        update(message = Diagnostic.Fixed(MessageId.UNDONE), retryUndoId = id,
             after = { undos.remove(id) }) { it, time ->
             val inverse = undos[id] ?: throw UndoConflict("This Undo has expired or was cleared after workspace replacement. Nothing was changed.")
             inverse.reverse(it, time).also { result ->
@@ -926,12 +942,12 @@ class GitHabitViewModel(
 
     /** Settings and calendar maintenance share the verified storage boundary. */
     fun setWeekStart(weekday: DayOfWeek, intendedDate: LocalDate = today, onDateChanged: (LocalDate) -> Unit = {}) = update(
-        message = "Calendar preference saved. Check its effective and pending dates in Settings.",
+        message = Diagnostic.Fixed(MessageId.CALENDAR),
         intendedDate = intendedDate, onDateChanged = onDateChanged,
     ) { it, time -> it.requestWeekStart(weekday, time.date) }
 
     fun saveProfile(name: String, bio: String, onSaved: () -> Unit = {}) = update(
-        message = "Profile saved on this device.", after = onSaved, afterUnchanged = onSaved,
+        message = Diagnostic.Fixed(MessageId.PROFILE), after = onSaved, afterUnchanged = onSaved,
     ) { it, _ ->
         require(name.trim().length <= 40) { "Keep your display name within 40 characters." }
         require(bio.length <= 160) { "Keep your note within 160 characters." }
@@ -988,8 +1004,8 @@ class GitHabitViewModel(
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (restoreState == RestoreState.Reading(requestId)) restoreState = RestoreState.Failed(requestId,
-                    if (error is WorkspaceJsonException) error.message ?: "The document did not pass validation."
-                    else "The document could not be read completely. Select it again or choose another file. Nothing was replaced.")
+                    if (error is WorkspaceJsonException) Diagnostic.DocumentFailure(error.kind, error.message ?: "The document did not pass validation.")
+                    else Diagnostic.Fixed(MessageId.DOCUMENT_READ_FAILED))
             }
         }
     }
@@ -1010,7 +1026,7 @@ class GitHabitViewModel(
                         currentHabitCount = workspace.habits.size, currentCommitCount = workspace.commits.size, consentUpdated = true)
                     false
                 } else true
-            }, successMessage = "Workspace restored. Previous data was preserved on this device before replacement.")
+            }, successMessage = Diagnostic.Fixed(MessageId.RESTORED))
     }
 
     fun requestReset() {
@@ -1034,7 +1050,7 @@ class GitHabitViewModel(
                 resetPreview = ResetPreview(workspaceRevision, load, workspace.habits.size, workspace.commits.size, true)
                 false
             } else true
-        }, successMessage = "Workspace reset. Previous data was preserved on this device; external exports were not deleted.")
+        }, successMessage = Diagnostic.Fixed(MessageId.RESET))
     }
 
     /** Freeze the committed source BEFORE opening the external picker. Not saved in a Bundle. */
@@ -1049,7 +1065,7 @@ class GitHabitViewModel(
                     if (load !is WorkspaceLoad.Recovery) null else withContext(ioDispatcher) { store.recoverySnapshot() }
                 } else null
                 if (recovery) requireNotNull(copy) { "No recovery bytes are available to save." }
-                else withContext(ioDispatcher) { WorkspaceJson.encode(snapshot) }
+                else withContext(ioDispatcher) { WorkspaceJson.encodedSize(snapshot) }
                 val request = ExportRequest(UUID.randomUUID().toString(), snapshot.takeUnless { recovery }, copy)
                 pendingExport = request
                 onReady(request.id, "githabit-${if (recovery) "recovery" else "workspace-v2"}-$date.json")
@@ -1057,7 +1073,8 @@ class GitHabitViewModel(
                 pendingExport = null
                 exportInProgress = false
                 if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice("Export was not started. ${if (error is IllegalArgumentException) error.message ?: "" else "Try another location."}"))
+                noticeChannel.trySend(Notice(Diagnostic.ExportNotStarted(if (error is IllegalArgumentException)
+                    Diagnostic.External(error.message ?: "") else Diagnostic.Fixed(MessageId.EXPORT_RETRY_LOCATION))))
             }
         }
     }
@@ -1075,11 +1092,10 @@ class GitHabitViewModel(
                     if (request.workspace != null) WorkspaceJson.export(request.workspace, openOutput)
                     else openOutput().use(requireNotNull(request.recovery)::writeTo)
                 }
-                noticeChannel.trySend(Notice(if (request.workspace != null) "Your selected workspace snapshot has been exported."
-                    else "A recovery snapshot was saved byte-for-byte. It may need repair before use."))
+                noticeChannel.trySend(Notice(Diagnostic.Fixed(if (request.workspace != null) MessageId.EXPORTED else MessageId.RECOVERY_EXPORTED)))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                noticeChannel.trySend(Notice("Export failed. The chosen file may be incomplete; select a location to retry."))
+                noticeChannel.trySend(Notice(Diagnostic.Fixed(MessageId.EXPORT_FAILED)))
             } finally { exportInProgress = false }
         }
     }

@@ -2,7 +2,6 @@ package com.githabit.prototype.data
 
 import com.githabit.prototype.domain.Workspace
 import java.io.InputStream
-import java.security.MessageDigest
 
 /** Owned, validated candidate. Provider contents are never read again after preview. */
 class RestoreDocument private constructor(
@@ -19,14 +18,11 @@ class RestoreDocument private constructor(
             val decoded = openInput().use { WorkspaceJson.decodeDocument(WorkspaceLimits.readBounded(it)) }
             // A small enough legacy input may expand beyond the v2 output limit.
             // Do not offer a candidate that cannot be saved losslessly.
-            val encoded = WorkspaceJson.encode(decoded.workspace)
-            require(WorkspaceJson.decode(encoded) == decoded.workspace) {
+            val (encoded, fingerprint) = WorkspaceJson.encodeAndDigest(decoded.workspace)
+            require(WorkspaceJson.verifies(encoded, decoded.workspace)) {
                 "This document cannot be restored without changing its values."
             }
-            return RestoreDocument(decoded.workspace, decoded.sourceVersion, workspaceDigest(encoded))
+            return RestoreDocument(decoded.workspace, decoded.sourceVersion, fingerprint)
         }
     }
 }
-
-internal fun workspaceDigest(encoded: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(encoded.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

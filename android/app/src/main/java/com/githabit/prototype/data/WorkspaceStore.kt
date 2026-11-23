@@ -42,7 +42,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
         // Never replace an unpreserved original/candidate with a later retry's bytes.
         if ((original != null || uncertainCandidate != null) && !preserveOutstanding()) {
             return@synchronized unreadable(UnreadableKind.IO,
-                "Earlier recovery snapshots must be preserved before storage can be re-read.")
+                StorageMessage.PRESERVE_BEFORE_READ)
         }
         preservationBlocked = true
         persistedLastGoodBytes = try { access.lastGoodBytes() } catch (error: WorkspaceFileCapacityException) {
@@ -52,7 +52,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
             physicalRecovery = error.recoveryCopy
             null
         } catch (_: Exception) {
-            return@synchronized unreadable(UnreadableKind.IO, "The last-good recovery file could not be inspected.")
+            return@synchronized unreadable(UnreadableKind.IO, StorageMessage.LAST_GOOD_UNINSPECTED)
         }
         preservationBlocked = false
         val raw = try { access.readBytes() } catch (error: WorkspaceFileCapacityException) {
@@ -60,22 +60,22 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
         } catch (error: WorkspaceFileReadException) {
             if (error.recoveryCopy != null) physicalRecovery = error.recoveryCopy
             return@synchronized unreadable(UnreadableKind.IO,
-                "The workspace could not be opened. Retained physical evidence can be exported before a confirmed start-over.")
+                StorageMessage.OPEN_FAILED)
         } catch (_: IOException) {
-            return@synchronized unreadable(UnreadableKind.IO, "Workspace storage could not be read.")
+            return@synchronized unreadable(UnreadableKind.IO, StorageMessage.READ_FAILED)
         } catch (_: SecurityException) {
-            return@synchronized unreadable(UnreadableKind.IO, "Workspace storage is not accessible.")
+            return@synchronized unreadable(UnreadableKind.IO, StorageMessage.INACCESSIBLE)
         }
         if (raw == null) {
             val backup = try { access.preservedBytes() } catch (error: WorkspaceFileCapacityException) {
                 return@synchronized capacityRecovery(error)
             } catch (_: Exception) {
-                return@synchronized unreadable(UnreadableKind.IO, "Recovery storage could not be inspected.")
+                return@synchronized unreadable(UnreadableKind.IO, StorageMessage.RECOVERY_UNINSPECTED)
             }
             if (seenFile || backup != null || original != null || uncertainCandidate != null) {
                 if (original == null) original = backup
                 return@synchronized unreadable(UnreadableKind.IO,
-                    "The workspace file is missing, but earlier data may still be recoverable.")
+                    StorageMessage.MISSING_WITH_EVIDENCE)
             }
             lastGoodBytes = null
             writable = true
@@ -87,21 +87,21 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
             val workspace = document.workspace
             if ((original != null || uncertainCandidate != null) && !preserveOutstanding()) {
                 return@synchronized unreadable(UnreadableKind.IO,
-                    "The file is readable, but earlier recovery snapshots could not yet be preserved.")
+                    StorageMessage.READABLE_UNPRESERVED)
             }
-            lastGoodBytes = raw.copyOf()
+            lastGoodBytes = raw
             if (document.sourceVersion == 1) {
-                original = raw.copyOf()
+                original = raw
                 // Independently retain all earlier snapshots, not just LAST_GOOD,
                 // which ordinary saves are allowed to rotate after migration.
                 if (!preserveOutstanding()) return@synchronized unreadable(UnreadableKind.IO,
-                    "The legacy original could not be preserved. Migration did not proceed.")
+                    StorageMessage.LEGACY_UNPRESERVED)
                 return@synchronized when (save(workspace, replacement = false, migration = true)) {
                     WriteOutcome.Committed -> WorkspaceLoadResult.Ready(workspace)
                     WriteOutcome.Indeterminate -> unreadable(UnreadableKind.INDETERMINATE,
-                        "Migration could not be verified. Re-read storage before making changes.")
+                        StorageMessage.MIGRATION_UNVERIFIED)
                     else -> unreadable(UnreadableKind.IO,
-                        "Migration was not committed. The legacy original is retained; retry after checking storage.")
+                        StorageMessage.MIGRATION_UNCOMMITTED)
                 }
             }
             original = null
@@ -111,13 +111,13 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
             hasRecoveryBytes = true
             WorkspaceLoadResult.Ready(workspace)
         } catch (error: Exception) {
-            original = raw.copyOf()
+            original = raw
             unreadable(kindOf(error), when (kindOf(error)) {
-                UnreadableKind.UNSUPPORTED_VERSION -> "This workspace uses an unsupported format. Its bytes were left untouched."
-                UnreadableKind.INVALID -> "Saved data did not pass validation."
-                UnreadableKind.LEGACY_INCOMPATIBLE -> "Legacy data cannot be migrated without changing values. Its original was retained."
-                UnreadableKind.CAPACITY -> "Workspace exceeds supported capacity. Its original was retained without truncation."
-                else -> "Saved data could not be decoded."
+                UnreadableKind.UNSUPPORTED_VERSION -> StorageMessage.UNSUPPORTED
+                UnreadableKind.INVALID -> StorageMessage.INVALID
+                UnreadableKind.LEGACY_INCOMPATIBLE -> StorageMessage.LEGACY_INCOMPATIBLE
+                UnreadableKind.CAPACITY -> StorageMessage.CAPACITY
+                else -> StorageMessage.DECODE_FAILED
             })
         }
     }
@@ -133,7 +133,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
     fun replaceVerified(state: Workspace): WriteOutcome = synchronized(lock) {
         if (!loaded) return@synchronized WriteOutcome.Blocked
         if (preservationBlocked) return@synchronized WriteOutcome.Rejected(
-            "Reconcile and re-read storage before replacement. An oversized or uninspectable file still needs recovery.")
+            StorageMessage.REPLACEMENT_BLOCKED)
         save(state, replacement = true)
     }
 
@@ -146,17 +146,22 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
     fun recoverySnapshot(): RecoverySnapshot? = synchronized(lock) {
         val file = physicalRecovery
         if (file != null) RecoverySnapshot { output -> access.copyRecoveryTo(file, output) }
-        else recoveryBytes()?.let { bytes -> RecoverySnapshot { output -> output.write(bytes) } }
+        else (original ?: lastGoodBytes ?: persistedLastGoodBytes ?: uncertainCandidate)?.let { bytes ->
+            // Private immutable owned array; later store reference changes cannot mutate this source.
+            RecoverySnapshot { output -> output.writeSnapshot(bytes) }
+        }
     }
 
     private fun save(state: Workspace, replacement: Boolean, migration: Boolean = false): WriteOutcome {
         if (!writable && (original != null || uncertainCandidate != null) && !preserveOutstanding()) {
-            return WriteOutcome.Rejected("Earlier recovery snapshots could not be preserved. Nothing was replaced.")
+            return WriteOutcome.Rejected(StorageMessage.EARLIER_UNPRESERVED)
         }
-        val candidate = WorkspaceJson.encode(state).toByteArray(Charsets.UTF_8)
+        val candidate = WorkspaceJson.encodeToBytes(state)
         require(matches(candidate, state)) { "The workspace cannot be saved without changing its values." }
 
-        val previous = try { access.readBytes() } catch (error: WorkspaceFileCapacityException) {
+        // Avoid allocating an equal full-file read; previous still survives every rollback check.
+        val previous = try { access.readBytesMatching(listOfNotNull(lastGoodBytes, original))
+        } catch (error: WorkspaceFileCapacityException) {
             capacityRecovery(error)
             return indeterminate(candidate, null)
         } catch (error: WorkspaceFileReadException) {
@@ -176,15 +181,16 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
             .distinctBy { ByteBuffer.wrap(it) } else listOfNotNull(previous)
         val kind = if (replacement || migration) CopyKind.RECOVERY else CopyKind.LAST_GOOD
         if ((replacement && !writable && snapshots.isEmpty() && physicalRecovery == null) || !snapshots.all { preserve(it, kind) }) {
-            return WriteOutcome.Rejected("A verified preservation copy could not be saved. Nothing was replaced.")
+            return WriteOutcome.Rejected(StorageMessage.COPY_UNVERIFIED)
         }
 
         try { access.writeBytes(candidate) } catch (_: Exception) {
             // A thrown finish/write does not prove the candidate was not committed.
         }
-        val observed = readAttempt()
+        val observed = readAttempt(listOfNotNull(candidate, previous))
         if (preservationBlocked) return indeterminate(candidate, observed.bytes)
-        if (observed.readable && observed.bytes != null && matches(observed.bytes, state)) {
+        if (observed.readable && observed.bytes != null &&
+            (observed.bytes.contentEquals(candidate) || matches(observed.bytes, state))) {
             return committed(observed.bytes)
         }
         if (observed.readable && sameBytes(observed.bytes, previous)) return WriteOutcome.RolledBack
@@ -196,7 +202,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
         }
         if (previous != null) {
             try { access.writeBytes(previous) } catch (_: Exception) { /* Verify regardless. */ }
-            val restored = readAttempt()
+            val restored = readAttempt(listOf(previous, candidate))
             if (restored.readable && sameBytes(restored.bytes, previous)) return WriteOutcome.RolledBack
             if (restored.bytes != null && matches(restored.bytes, state)) return committed(restored.bytes)
             return indeterminate(candidate, restored.bytes ?: observed.bytes)
@@ -208,7 +214,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
     private fun committed(observed: ByteArray): WriteOutcome {
         // The file may be value-equivalent JSON with different whitespace/field order.
         // Stale-snapshot checks must compare with actual verified bytes, not our encoder.
-        lastGoodBytes = observed.copyOf()
+        lastGoodBytes = observed
         persistedLastGoodBytes = null
         original = null
         uncertainCandidate = null
@@ -222,14 +228,14 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
     private fun indeterminate(candidate: ByteArray, observed: ByteArray?): WriteOutcome {
         writable = false
         uncertainCandidate = candidate
-        if (observed != null) { original = observed.copyOf(); seenFile = true }
+        if (observed != null) { original = observed; seenFile = true }
         preserveAvailable()
         return WriteOutcome.Indeterminate
     }
 
-    private fun unreadable(kind: UnreadableKind, reason: String): WorkspaceLoadResult.Unreadable {
+    private fun unreadable(kind: UnreadableKind, message: StorageMessage): WorkspaceLoadResult.Unreadable {
         preserveAvailable()
-        return WorkspaceLoadResult.Unreadable(kind, reason, recoveryPreserved)
+        return WorkspaceLoadResult.Unreadable(kind, message, recoveryPreserved)
     }
 
     private fun capacityRecovery(error: WorkspaceFileCapacityException): WorkspaceLoadResult.Unreadable {
@@ -238,8 +244,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
         seenFile = true
         if (error.recoveryCopy != null) physicalRecovery = error.recoveryCopy
         return unreadable(UnreadableKind.CAPACITY,
-            "A stored file exceeds supported capacity. It was not truncated or replaced. " +
-                "Save the recovery copy if available; replacement stays blocked until storage is reconciled.")
+            StorageMessage.PHYSICAL_CAPACITY)
     }
 
     private fun preserveAvailable() {
@@ -254,12 +259,12 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
 
     private fun preserve(bytes: ByteArray, kind: CopyKind = CopyKind.RECOVERY): Boolean = try {
         val file = access.preserveCopy(bytes, kind)
-        file != null && access.readCopy(file).contentEquals(bytes)
+        file != null && access.copyMatches(file, bytes)
     } catch (_: Exception) { false }
 
     private data class ReadAttempt(val readable: Boolean, val bytes: ByteArray?)
-    private fun readAttempt(): ReadAttempt = try {
-        ReadAttempt(true, access.readBytes())
+    private fun readAttempt(expected: List<ByteArray>): ReadAttempt = try {
+        ReadAttempt(true, access.readBytesMatching(expected))
     } catch (error: WorkspaceFileCapacityException) {
         capacityRecovery(error)
         ReadAttempt(false, null)
@@ -271,10 +276,7 @@ class WorkspaceStore(private val access: WorkspaceFileAccess) {
     private fun sameBytes(a: ByteArray?, b: ByteArray?): Boolean =
         if (a == null || b == null) a == null && b == null else a.contentEquals(b)
 
-    private fun matches(raw: ByteArray, state: Workspace): Boolean = try {
-        val document = WorkspaceJson.decodeDocument(raw)
-        document.sourceVersion == WorkspaceJson.VERSION && document.workspace == state
-    } catch (_: Exception) { false }
+    private fun matches(raw: ByteArray, state: Workspace): Boolean = WorkspaceJson.verifies(raw, state)
 
     private fun kindOf(error: Exception): UnreadableKind = when (error) {
         is WorkspaceJsonException -> when (error.kind) {

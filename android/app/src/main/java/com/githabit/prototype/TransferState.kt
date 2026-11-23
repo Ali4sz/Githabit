@@ -17,7 +17,9 @@ sealed interface RestoreState {
         val currentCommitCount: Int,
         val consentUpdated: Boolean = false,
     ) : RestoreState
-    data class Failed(override val requestId: String, val message: String) : RestoreState
+    data class Failed(override val requestId: String, val diagnostic: Diagnostic) : RestoreState {
+        val message get() = diagnostic.english
+    }
 }
 
 @ConsistentCopyVisibility

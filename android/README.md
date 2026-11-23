@@ -219,3 +219,36 @@ repos and commits with an empty workspace. It has no Undo and does not delete ex
 exports. Restore/reset require a verified on-device preservation copy before writing;
 these app-private copies are not protection against uninstall, device loss or every
 storage failure. Recovery also offers copy export, validated restore and start-over.
+
+## Task 13: regression passed; certification remains open
+
+See [Task 13 evidence](docs/task13-verification.md) and its
+[measurement protocol](docs/task13-methodology.md) and
+[remediation progress](docs/task13-remediation-progress.md). Latest November 22
+run 9 passed both complete animation suites **88/88**, codec **8/8**, production
+capacity workflows **4/4**, huge-text rendering/recreation **2/2**, and real 200%
+modal journeys at four windows. Its terminal audit passed: **no OOM/crash/ANR markers
+in retained logcat**. Installed APK equality, normal rendered readiness and disposable
+cleanup were verified. Host checks passed **333 tests per variant**, lint and builds.
+Bounded codec/readback/I/O changes preserve canonical bytes and rollback evidence;
+a test-lifetime helper retains all assertions before independent fresh-store reopen.
+Earlier OOM runs remain failed historical evidence, not relabeled passes. These are
+observed regression results, not permanent fragmentation safety or hardware certification.
+A separate physical-phone e2e (CPH2749/`3C1672002K000000`, Android 17, under explicit
+one-time reset consent) also passed clean: **55/55** phone-runnable instrumented tests,
+the emulator-only visual tests correctly refusing on hardware, byte-identical install,
+and a standalone five-year load rendered `QA repo 0` ~3.3 s without OOM/ANR — the first
+real-hardware capacity evidence (see [verification](docs/task13-verification.md)).
+**The shared bounds
+remain provisional; they are not certified safe capacities. This is not a final
+personal-use handoff.**
+
+The five-year/20-repo lifecycle preserves records through log/correction/Undo and
+export/restore/reopen. Measured timings and substantial debug-emulator frame jank
+are recorded, not presented as a performance pass. Representative 200% pseudolocale
+journeys pass compact, short and expanded windows after locale-independent snackbar
+dismissal and lazy-item test handling. Actual TalkBack, complete hardware-keyboard,
+minimum-memory-device, oldest-platform, process-death and complete
+font/RTL/IME/contrast/focus-return evidence remain open. The remediation is committed
+locally; no push, publication or upload was performed. A phone e2e ran only under the
+explicit one-time "expect full reset" consent recorded above.

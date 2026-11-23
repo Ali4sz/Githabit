@@ -33,10 +33,17 @@ interface WorkspaceFileAccess {
     /** All access objects for the same physical file must share this process-wide lock. */
     val ownershipLock: Any get() = this
 
-    /** Raw stored bytes, or null when no file exists yet. Throws on read failure. */
+    /** Fresh caller-owned bytes, or null when missing. No returned array may later be mutated by access. */
     fun readBytes(): ByteArray?
 
-    /** Atomically replace the stored file. Throws on failure. */
+    /** Borrow immutable snapshots for this call only; alias only after exact physical bytes + EOF.
+     * Different bytes remain fresh and complete. The default preserves injected read faults.
+     */
+    fun readBytesMatching(expected: List<ByteArray>): ByteArray? = readBytes()?.let { actual ->
+        expected.firstOrNull { it.contentEquals(actual) } ?: actual
+    }
+
+    /** Borrow bytes read-only for this call; never mutate/retain them. Throws on failure. */
     fun writeBytes(bytes: ByteArray)
 
     /** Independently named copy. The owner must read it back before trusting it. */
@@ -44,8 +51,11 @@ interface WorkspaceFileAccess {
 
     fun readCopy(file: File): ByteArray
 
+    /** Independently read back the entire copy; production comparison uses bounded memory. */
+    fun copyMatches(file: File, expected: ByteArray): Boolean = readCopy(file).contentEquals(expected)
+
     /** Raw recovery export may exceed the JSON acceptance limit; never decode or truncate it. */
-    fun copyRecoveryTo(file: File, output: OutputStream) { output.write(readCopy(file)) }
+    fun copyRecoveryTo(file: File, output: OutputStream) { output.writeSnapshot(readCopy(file)) }
 
     /** Bytes of the most recent preserved copy, if any. */
     fun preservedBytes(): ByteArray?
@@ -67,12 +77,16 @@ class AtomicFileAccess internal constructor(private val dir: File) : WorkspaceFi
     // Activity/ViewModel lifetimes without filesystem calls during construction.
     override val ownershipLock: Any = processStorageLock
 
-    override fun readBytes(): ByteArray? {
+    override fun readBytes(): ByteArray? = readPhysical(emptyList())
+
+    override fun readBytesMatching(expected: List<ByteArray>): ByteArray? = readPhysical(expected)
+
+    private fun readPhysical(expected: List<ByteArray>): ByteArray? {
         // AtomicFile may delete/replace sidecars while opening. Retain all physical
         // evidence before allowing that recovery, including oversized originals.
         val evidence = preserveAtomicSidecars(dir, copies)
         return try {
-            copies.readBounded { file.openRead() }
+            copies.readBounded(expected) { file.openRead() }
         } catch (error: FileNotFoundException) {
             // Never treat sidecar-only interrupted first writes as fresh installations.
             if (workspaceFilesMissing(dir)) null
@@ -89,7 +103,7 @@ class AtomicFileAccess internal constructor(private val dir: File) : WorkspaceFi
     override fun writeBytes(bytes: ByteArray) {
         val stream = file.startWrite()
         try {
-            stream.write(bytes)
+            stream.writeSnapshot(bytes)
             file.finishWrite(stream)
         } catch (error: Exception) {
             file.failWrite(stream)
@@ -99,7 +113,11 @@ class AtomicFileAccess internal constructor(private val dir: File) : WorkspaceFi
 
     override fun preserveCopy(bytes: ByteArray, kind: CopyKind): File? = copies.write(bytes, kind)
 
-    override fun readCopy(file: File): ByteArray = file.inputStream().use { WorkspaceLimits.readBounded(it) }
+    override fun readCopy(file: File): ByteArray = file.inputStream().use {
+        WorkspaceLimits.readBounded(it, knownSize = it.channel.size() - it.channel.position())
+    }
+
+    override fun copyMatches(file: File, expected: ByteArray): Boolean = file.inputStream().use { it.matchesBytes(expected) }
 
     override fun copyRecoveryTo(file: File, output: OutputStream) {
         file.inputStream().use { it.copyTo(output) }
@@ -108,7 +126,9 @@ class AtomicFileAccess internal constructor(private val dir: File) : WorkspaceFi
     override fun preservedBytes(): ByteArray? = copies.latest()
 
     override fun lastGoodBytes(): ByteArray? = try {
-        copies.readBounded { Files.newInputStream(File(dir, "githabit-last-good.json").toPath()) }
+        val path = File(dir, "githabit-last-good.json")
+        Files.readAttributes(path.toPath(), BasicFileAttributes::class.java)
+        copies.readBounded { path.inputStream() }
     } catch (_: NoSuchFileException) { null }
 
     companion object {
@@ -155,8 +175,13 @@ internal class WorkspaceCopies(
     private val dir: File,
     private val createStaging: (File) -> File = { File.createTempFile("githabit-preservation-", ".partial", it) },
 ) {
-    fun readBounded(open: () -> InputStream): ByteArray = try {
-        open().use { WorkspaceLimits.readBounded(it) }
+    fun readBounded(expected: List<ByteArray> = emptyList(), open: () -> InputStream): ByteArray = try {
+        open().use { input ->
+            // This seam opens app-owned regular files, never provider pipes. Generic imports
+            // must not infer a length from FileInputStream (providers may return pipe FDs).
+            val length = (input as? java.io.FileInputStream)?.let { it.channel.size() - it.channel.position() }
+            WorkspaceLimits.readMatchingBounded(input, length, expected)
+        }
     } catch (error: WorkspaceJsonException) {
         if (error.kind != WorkspaceJsonFailure.CAPACITY) throw error
         throw WorkspaceFileCapacityException(writeStream(open))
@@ -224,8 +249,8 @@ internal class WorkspaceCopies(
         return try {
             val copy = createStaging(dir)
             staging = copy
-            FileOutputStream(copy).use { output -> output.write(bytes); output.fd.sync() }
-            if (!copy.inputStream().use { WorkspaceLimits.readBounded(it) }.contentEquals(bytes)) throw IOException("Recovery copy verification failed.")
+            FileOutputStream(copy).use { output -> output.writeSnapshot(bytes); output.fd.sync() }
+            if (!copy.inputStream().use { it.matchesBytes(bytes) }) throw IOException("Recovery copy verification failed.")
             val lastGood = File(dir, "githabit-last-good.json")
             Files.move(copy.toPath(), lastGood.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             staging = null
@@ -245,4 +270,33 @@ internal class WorkspaceCopies(
         }
         return readBounded { latest.inputStream() }
     }
+}
+
+/** Never pass a private/full snapshot array to JNI or an external output implementation. */
+internal fun OutputStream.writeSnapshot(bytes: ByteArray) {
+    val buffer = ByteArray(minOf(WorkspaceLimits.IO_BUFFER_BYTES, bytes.size))
+    var position = 0
+    while (position < bytes.size) {
+        val count = minOf(buffer.size, bytes.size - position)
+        bytes.copyInto(buffer, 0, position, position + count)
+        write(buffer, 0, count)
+        position += count
+    }
+}
+
+/** Exact comparison (not hash-only): rejects truncation, extra bytes, and short/zero reads. */
+internal fun InputStream.matchesBytes(expected: ByteArray): Boolean {
+    val buffer = ByteArray(8192)
+    var position = 0
+    while (position < expected.size) {
+        val count = read(buffer, 0, minOf(buffer.size, expected.size - position))
+        if (count < 0) return false
+        if (count == 0) {
+            if (read() != (expected[position++].toInt() and 255)) return false
+        } else {
+            for (index in 0 until count) if (buffer[index] != expected[position + index]) return false
+            position += count
+        }
+    }
+    return read() == -1
 }

@@ -68,6 +68,7 @@ class PreferencesTest {
                 if (unknownOutcome && attemptedWrite) throw IOException("Test-only verification fault")
                 return real.readBytes()
             }
+            override fun readBytesMatching(expected: List<ByteArray>): ByteArray? = super<WorkspaceFileAccess>.readBytesMatching(expected)
             override fun writeBytes(bytes: ByteArray) {
                 if (unknownOutcome) { attemptedWrite = true; throw IOException("Test-only indeterminate write") }
                 if (failWrites) throw IOException("Test-only write fault")

@@ -145,7 +145,7 @@ fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Worksp
     require(fields.unit == habit.unit || commits.none { it.habitId == id }) {
         "Units stay fixed after your first commit. Create a new repo for a different unit."
     }
-    val version = requireNotNull(habit.versionOn(today)) { "This repo did not exist on $today. Check your device date." }
+    val version = habit.versionOn(today) ?: throw RepoBeforeCreation(today)
     // A redundant save with no substantive change adds no configuration version (contract 4).
     val configChanged = version.target != fields.target || version.schedule != fields.schedule
     if (configChanged) habit.requireConfigurationDate(today)
@@ -161,7 +161,7 @@ fun Workspace.editHabit(id: String, draft: HabitDraft, today: LocalDate): Worksp
 
 fun Workspace.changeStatus(id: String, status: RepoStatus, today: LocalDate): Workspace {
     val habit = requireNotNull(habits.firstOrNull { it.id == id }) { "This repo could not be found." }
-    val version = requireNotNull(habit.versionOn(today)) { "This repo did not exist on $today. Check your device date." }
+    val version = habit.versionOn(today) ?: throw RepoBeforeCreation(today)
     // Same-day updates preserve target and schedule; a redundant save changes nothing.
     if (version.status == status) return this
     habit.requireConfigurationDate(today)

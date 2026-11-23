@@ -134,5 +134,8 @@ fun Workspace.proposedWeeklyTransition(id: String?, draft: HabitDraft, date: Loc
     if (id != null && version?.target == fields.target && version.schedule == fields.schedule) return false
     val previewId = id ?: generateSequence("form-preview") { "$it-" }.first { candidate -> habits.none { it.id == candidate } }
     val proposed = if (id == null) createHabit(draft, date, previewId) else editHabit(id, draft, date)
-    return ProgressAnalytics(proposed, date).weekly(previewId, date).assessment == WeekAssessment.TRANSITIONAL
+    // Transition eligibility depends on dated configurations, never on recorded
+    // amounts. Index only the proposed repo and no commits while typing a draft.
+    val preview = proposed.copy(habits = listOf(proposed.habits.first { it.id == previewId }), commits = emptyList())
+    return ProgressAnalytics(preview, date).weekly(previewId, date).assessment == WeekAssessment.TRANSITIONAL
 }

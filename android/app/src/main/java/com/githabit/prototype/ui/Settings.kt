@@ -78,7 +78,9 @@ fun SettingsScreen(vm: GitHabitViewModel, onExport: () -> Unit, onRestore: () ->
 
 @Composable
 private fun ProfilePreferences(vm: GitHabitViewModel) {
-    var name by rememberSaveable(vm.workspace.name) { mutableStateOf(vm.workspace.name) }
+    // Only explicit small edits enter saved state; a huge compatible original remains on disk.
+    var nameEdit by rememberSaveable(vm.workspace.name) { mutableStateOf<String?>(null) }
+    val name = nameEdit ?: vm.workspace.name
     var bio by rememberSaveable(vm.workspace.bio) { mutableStateOf(vm.workspace.bio) }
     // Legacy names may include padding beyond the validated trimmed-name limit.
     val nameCharactersRemaining = (40 - name.length).coerceAtLeast(0)
@@ -90,12 +92,12 @@ private fun ProfilePreferences(vm: GitHabitViewModel) {
                     Icon(Icons.Outlined.PersonOutline, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
-            Text(vm.workspace.name.ifBlank { stringResource(R.string.workspace_title) },
+            Text(displayPreview(vm.workspace.name.ifBlank { stringResource(R.string.workspace_title) }),
                 modifier = Modifier.weight(1f).testTag("profile-heading"), style = MaterialTheme.typography.titleLarge)
         }
         Subtitle(stringResource(R.string.profile_description))
-        OutlinedTextField(name, { if (it.length <= 40) name = it }, enabled = !vm.busy,
-            label = { Text(stringResource(R.string.profile_name)) }, singleLine = true,
+        LegacyTextInput(name, { if (it.length <= 40) nameEdit = it }, enabled = !vm.busy,
+            label = stringResource(R.string.profile_name), singleLine = true,
             supportingText = { Text(pluralStringResource(R.plurals.characters_remaining, nameCharactersRemaining, nameCharactersRemaining)) },
             modifier = Modifier.fillMaxWidth().testTag("profile-name"))
         OutlinedTextField(bio, { if (it.length <= 160) bio = it }, enabled = !vm.busy,
@@ -103,7 +105,7 @@ private fun ProfilePreferences(vm: GitHabitViewModel) {
             supportingText = { Text(pluralStringResource(R.plurals.characters_remaining, 160 - bio.length, 160 - bio.length)) },
             modifier = Modifier.fillMaxWidth().testTag("profile-bio"))
         OutlinedButton(onClick = { vm.saveProfile(name, bio) {
-            name = vm.workspace.name
+            nameEdit = null
             bio = vm.workspace.bio
         } },
             enabled = !vm.busy && (name != vm.workspace.name || bio != vm.workspace.bio),
@@ -115,7 +117,7 @@ private fun ProfilePreferences(vm: GitHabitViewModel) {
 
 @Composable
 private fun CalendarPreferences(vm: GitHabitViewModel) {
-    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val locale = displayLocale()
     val status = vm.workspace.calendar.status(vm.today)
     val savedChoice = status.pending?.weekStart ?: status.effectiveWeekStart
     var draft by rememberSaveable { mutableStateOf<DayOfWeek?>(null) }
@@ -165,7 +167,7 @@ private fun CalendarPreferences(vm: GitHabitViewModel) {
                     }
                     CalendarDates(projected, locale, preview = true)
                 }
-                preview?.exceptionOrNull()?.let { Subtitle(it.message ?: stringResource(R.string.calendar_invalid)) }
+                preview?.exceptionOrNull()?.let { Subtitle(stringResource(R.string.calendar_invalid)) }
             }
         }
         if (changed && (dateReview || intendedDate != vm.today.toString())) Text(

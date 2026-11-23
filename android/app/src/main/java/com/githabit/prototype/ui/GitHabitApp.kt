@@ -53,14 +53,24 @@ fun GitHabitApp(vm: GitHabitViewModel) {
     val dark = vm.workspace.theme.isDark(isSystemInDarkTheme())
     GitHabitSystemBars(dark)
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm) {
+    val undoLabel = stringResource(R.string.action_undo)
+    // Notice translation runs in composition while the original command diagnostic
+    // remains intact for recovery/tests. Snackbar action handling stays ID-based.
+    var pendingNotice by remember { mutableStateOf<com.githabit.prototype.Notice?>(null) }
+    var noticeSequence by remember { mutableIntStateOf(0) }
+    LaunchedEffect(vm, undoLabel) {
         vm.notices.collect { notice ->
+            pendingNotice = notice
+            noticeSequence++
+        }
+    }
+    val renderedNotice = pendingNotice?.let { diagnosticMessage(it.diagnostic) }
+    LaunchedEffect(noticeSequence, renderedNotice, undoLabel) {
+        pendingNotice?.let { notice ->
             snackbar.currentSnackbarData?.dismiss()
-            launch {
-                val result = snackbar.showSnackbar(notice.message, actionLabel = notice.undoId?.let { "Undo" },
+                val result = snackbar.showSnackbar(requireNotNull(renderedNotice), actionLabel = notice.undoId?.let { undoLabel },
                     withDismissAction = true, duration = if (notice.undoId == null) SnackbarDuration.Short else SnackbarDuration.Long)
                 if (result == SnackbarResult.ActionPerformed) notice.undoId?.let(vm::undo)
-            }
         }
     }
     // Unconditional registration and small correlation tokens survive Activity recreation.
@@ -132,7 +142,7 @@ fun GitHabitApp(vm: GitHabitViewModel) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
                 contentWindowInsets = WindowInsets.safeDrawing,
-                snackbarHost = { SnackbarHost(snackbar) },
+                snackbarHost = { SnackbarHost(snackbar, Modifier.testTag("notice-host")) },
                 topBar = {
                     if (workspaceOpen) TopAppBar(
                         title = {

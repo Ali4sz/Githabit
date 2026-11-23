@@ -18,9 +18,11 @@ sealed interface WorkspaceLoadResult {
      */
     data class Unreadable(
         val kind: UnreadableKind,
-        val reason: String,
+        val message: StorageMessage,
         val preserved: Boolean,
-    ) : WorkspaceLoadResult
+    ) : WorkspaceLoadResult {
+        val reason get() = message.english
+    }
 }
 
 /** Verified outcome of a persisted write. */
@@ -29,7 +31,9 @@ sealed interface WriteOutcome {
     data object Blocked : WriteOutcome
 
     /** No write attempted, for example because preservation failed. */
-    data class Rejected(val reason: String) : WriteOutcome
+    data class Rejected(val message: StorageMessage) : WriteOutcome {
+        val reason get() = message.english
+    }
 
     /** The file was re-read after writing and matches the candidate. */
     data object Committed : WriteOutcome

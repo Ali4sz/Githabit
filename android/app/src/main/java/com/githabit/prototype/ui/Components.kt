@@ -32,36 +32,33 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.githabit.prototype.domain.*
-import java.text.DecimalFormat
 import java.time.LocalDate
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-fun formatAmount(value: Double): String = DecimalFormat("#,##0.###").format(value)
-fun dateLabel(day: LocalDate): String = day.format(DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM))
-
 @Composable
 internal fun WeekPeriodSummary(period: WeekPeriod) {
     Subtitle(stringResource(if (period.kind == WeekPeriodKind.BRIDGE) R.string.schedule_bridge else R.string.schedule_period,
-        dateLabel(period.start), dateLabel(period.endExclusive.minusDays(1))))
+        localizedDateLabel(period.start), localizedDateLabel(period.endExclusive.minusDays(1))))
 }
 
 @Composable
 internal fun ScheduleSummary(state: Workspace, habit: Habit, today: LocalDate, analytics: ProgressAnalytics? = null) {
     val version = habit.versionOn(today) ?: return
     val schedule = version.schedule
-    val target = formatAmount(version.target)
+    val target = amountLabel(version.target)
+    val locale = displayLocale()
     val summary = when (schedule) {
-        HabitSchedule.Daily -> stringResource(R.string.schedule_summary_daily, target, habit.unit)
+        HabitSchedule.Daily -> stringResource(R.string.schedule_summary_daily, target, displayPreview(habit.unit))
         is HabitSchedule.SelectedWeekdays -> {
             val start = state.calendar.effectiveWeekStart(today)
             val names = (0..6).map { DayOfWeek.of((start.value - 1 + it) % 7 + 1) }
-                .filter { it in schedule.days }.joinToString(", ") { it.getDisplayName(TextStyle.FULL, Locale.ENGLISH) }
-            stringResource(R.string.schedule_summary_weekdays, names, target, habit.unit)
+                .filter { it in schedule.days }.joinToString(", ") { it.getDisplayName(TextStyle.FULL, locale) }
+            stringResource(R.string.schedule_summary_weekdays, names, target, displayPreview(habit.unit))
         }
-        is HabitSchedule.WeeklyQuota -> pluralStringResource(R.plurals.schedule_summary_weekly, schedule.daysPerWeek, target, habit.unit, schedule.daysPerWeek)
+        is HabitSchedule.WeeklyQuota -> pluralStringResource(R.plurals.schedule_summary_weekly, schedule.daysPerWeek, target, displayPreview(habit.unit), schedule.daysPerWeek)
     }
     Text(summary, Modifier.testTag("schedule-summary-${habit.id}"), style = MaterialTheme.typography.bodySmall)
     if (schedule is HabitSchedule.WeeklyQuota) {
@@ -210,8 +207,11 @@ fun StatsRow(values: List<Triple<String, String, String>>, modifier: Modifier = 
 fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
     onOpen: () -> Unit, onLog: () -> Unit, onComplete: () -> Unit, onResume: () -> Unit,
     selected: Boolean? = null, analytics: ProgressAnalytics? = null) {
-    val value = remember(state, habit, today) { state.progress(habit, today) }
-    val status = habit.versionOn(today)?.status ?: RepoStatus.ACTIVE
+    val index = analytics ?: remember(state, today) { ProgressAnalytics(state, today) }
+    val daily = remember(index, habit.id, today) { index.daily(habit.id, today) }
+    val value = daily.progress
+    val status = daily.configuration?.status ?: RepoStatus.ACTIVE
+    val streaks = remember(index, habit.id, today) { index.commits.activityStreaks(today, habit.id) }
     val color = habitColor(habit.color)
     OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().focusOutline(MaterialTheme.shapes.medium)
         .testTag("habit-${habit.id}").semantics { if (selected != null) this.selected = selected },
@@ -223,44 +223,46 @@ fun HabitCard(state: Workspace, habit: Habit, today: LocalDate, busy: Boolean,
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 HabitGlyph(habit)
                 Spacer(Modifier.weight(1f))
-                if (value.complete) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
+                if (value.targetReached) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                     Icon(Icons.Outlined.CheckCircle, null, Modifier.size(GitHabitSize.supportingIcon), tint = MaterialTheme.colorScheme.primary)
                     Text(stringResource(R.string.schedule_today_reached), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                } else if (status != RepoStatus.ACTIVE) StatusBadge(status.name.lowercase())
+                } else if (status != RepoStatus.ACTIVE) StatusBadge(repoStatusLabel(status))
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
-                Text(habit.name, style = MaterialTheme.typography.titleMedium)
-                if (habit.description.isNotEmpty()) Subtitle(habit.description)
-                ScheduleSummary(state, habit, today, analytics)
+                Text(displayPreview(habit.name), style = MaterialTheme.typography.titleMedium)
+                if (habit.description.isNotEmpty()) Subtitle(displayPreview(habit.description))
+                ScheduleSummary(state, habit, today, index)
             }
             Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
-                    Text(stringResource(R.string.schedule_today_amount, formatAmount(value.total), formatAmount(value.target), habit.unit), style = MaterialTheme.typography.bodySmall,
+                    Text(stringResource(R.string.schedule_today_amount, amountLabel(value.total), amountLabel(value.target ?: habit.versions.first().target), displayPreview(habit.unit)), style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("progress-${habit.id}"))
-                    Text(if (value.eligible) "${((value.ratio ?: 0.0) * 100).toInt()}%" else "Not scheduled", style = MaterialTheme.typography.bodySmall,
+                    Text(if (daily.eligibility == DateEligibility.DUE || daily.eligibility == DateEligibility.WEEKLY_OPPORTUNITY)
+                        java.text.NumberFormat.getPercentInstance(displayLocale()).format(value.ratio ?: 0.0)
+                        else stringResource(R.string.repo_not_scheduled), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                LinearProgressIndicator(progress = { (value.total / value.target).coerceIn(0.0, 1.0).toFloat() },
+                LinearProgressIndicator(progress = { (value.ratio ?: 0.0).toFloat() },
                     modifier = Modifier.fillMaxWidth().height(GitHabitSize.progressTrack), color = color, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     drawStopIndicator = {})
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                 Icon(Icons.Outlined.LocalFireDepartment, null, Modifier.size(GitHabitSize.supportingIcon), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${state.activityStreak(today, habit.id)}-day activity streak", style = MaterialTheme.typography.bodySmall,
+                Text(pluralStringResource(R.plurals.repo_activity_streak, streaks.current, streaks.current), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 if (status == RepoStatus.ACTIVE) {
                     OutlinedButton(onClick = onLog, enabled = !busy,
                         modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape).testTag("log-${habit.id}")) {
-                        Icon(Icons.Outlined.Add, null, Modifier.size(GitHabitSize.supportingIcon)); Spacer(Modifier.width(GitHabitSpace.micro)); Text("Log")
+                        Icon(Icons.Outlined.Add, null, Modifier.size(GitHabitSize.supportingIcon)); Spacer(Modifier.width(GitHabitSpace.micro)); Text(stringResource(R.string.today_log))
                     }
-                    if (!value.complete) FilledTonalIconButton(onClick = onComplete, enabled = !busy,
+                    if (!value.targetReached) FilledTonalIconButton(onClick = onComplete, enabled = !busy,
                         modifier = Modifier.size(GitHabitSize.minimumTouch).focusOutline(CircleShape).testTag("complete-${habit.id}")) {
-                        Icon(Icons.Outlined.Check, "Complete remaining goal for ${habit.name}", Modifier.size(GitHabitSize.supportingIcon))
+                        Icon(Icons.Outlined.Check, stringResource(R.string.repo_complete_description, displayPreview(habit.name)), Modifier.size(GitHabitSize.supportingIcon))
                     }
                 } else OutlinedButton(onClick = onResume, enabled = !busy,
-                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape)) { Text("Resume") }
+                    modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch).focusOutline(CircleShape)) { Text(stringResource(R.string.repo_resume)) }
             }
         }
     }
@@ -278,7 +280,8 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, analyti
     val pitch = with(LocalDensity.current) { maxOf(HeatmapGeometry.minimumPitch, GitHabitType.chartLabel.lineHeight.toDp()) }
     val scroll = rememberScrollState()
     val description = stringResource(if (habitId == null) R.string.heatmap_activity_description else R.string.heatmap_progress_description,
-        dateLabel(first), dateLabel(today))
+        localizedDateLabel(first), localizedDateLabel(today))
+    val locale = displayLocale()
     Panel(Modifier.fillMaxWidth()) {
         SectionHeading(stringResource(if (habitId == null) R.string.heatmap_activity_title else R.string.heatmap_progress_title))
         Subtitle(stringResource(if (habitId == null) R.string.heatmap_activity_legend else R.string.heatmap_progress_legend))
@@ -293,15 +296,15 @@ fun Heatmap(state: Workspace, today: LocalDate, habitId: String? = null, analyti
             Column(Modifier.padding(end = GitHabitSpace.small)) {
                 (0..6).map { DayOfWeek.of((weekday.value - 1 + it) % 7 + 1) }.forEach {
                     Box(Modifier.height(pitch), contentAlignment = Alignment.Center) {
-                        Text(it.getDisplayName(TextStyle.SHORT, Locale.getDefault()), style = GitHabitType.chartLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(it.getDisplayName(TextStyle.SHORT, locale), style = GitHabitType.chartLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             Column(Modifier.horizontalScroll(scroll), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
                 Row(Modifier.width(pitch * weeks), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(first.format(DateTimeFormatter.ofPattern("MMM yyyy")), style = GitHabitType.chartLabel,
+                    Text(first.format(DateTimeFormatter.ofPattern("MMM yyyy", locale)), style = GitHabitType.chartLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(today.format(DateTimeFormatter.ofPattern("MMM yyyy")), style = GitHabitType.chartLabel,
+                    Text(today.format(DateTimeFormatter.ofPattern("MMM yyyy", locale)), style = GitHabitType.chartLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 val cellPixels = with(LocalDensity.current) { pitch.toPx() }
@@ -353,7 +356,7 @@ fun EmptyState(title: String, description: String, onCreate: (() -> Unit)? = nul
             onCreate?.let {
                 Button(onClick = it, modifier = Modifier.heightIn(min = GitHabitSize.minimumTouch)
                     .focusOutline(CircleShape, MaterialTheme.colorScheme.onPrimary)) {
-                    Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(GitHabitSpace.micro)); Text("Create a repo")
+                    Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(GitHabitSpace.micro)); Text(stringResource(R.string.repo_form_new))
                 }
             }
         }

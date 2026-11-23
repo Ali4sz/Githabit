@@ -49,17 +49,18 @@ internal fun dailyStateText(day: DailyProgress, today: LocalDate, week: WeeklyPr
 
 @Composable
 internal fun DailyHistorySummary(habit: Habit, day: DailyProgress, today: LocalDate, week: WeeklyProgress? = null) {
+    val locale = displayLocale()
     Column(Modifier.fillMaxWidth().testTag("date-summary-${habit.id}"), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
-        Text(habit.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+        Text(displayPreview(habit.name), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         val target = day.progress.target
-        Text(if (target == null) stringResource(R.string.history_amount_no_target, formatAmount(day.progress.total), habit.unit)
-            else stringResource(R.string.history_amount, formatAmount(day.progress.total), formatAmount(target), habit.unit))
+        Text(if (target == null) stringResource(R.string.history_amount_no_target, amountLabel(day.progress.total), displayPreview(habit.unit))
+            else stringResource(R.string.history_amount, amountLabel(day.progress.total), amountLabel(target), displayPreview(habit.unit)))
         Text(dailyStateText(day, today, week), style = MaterialTheme.typography.bodyMedium)
         day.configuration?.let { version ->
             Subtitle(when (val schedule = version.schedule) {
                 HabitSchedule.Daily -> stringResource(R.string.schedule_daily_instruction)
                 is HabitSchedule.SelectedWeekdays -> stringResource(R.string.history_selected_weekdays,
-                    schedule.days.sortedBy { it.value }.joinToString(", ") { it.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault()) })
+                    schedule.days.sortedBy { it.value }.joinToString(", ") { it.getDisplayName(java.time.format.TextStyle.FULL, locale) })
                 is HabitSchedule.WeeklyQuota -> pluralStringResource(R.plurals.schedule_weekly_instruction, schedule.daysPerWeek, schedule.daysPerWeek)
             })
         }
@@ -81,7 +82,7 @@ internal fun WeeklyHistorySummary(week: WeeklyProgress) {
         } else {
             Text(stringResource(if (week.assessment == WeekAssessment.TRANSITIONAL) R.string.history_transitional else R.string.history_week_inactive))
             Subtitle(pluralStringResource(R.plurals.history_qualifying_dates, week.qualifyingDates.size, week.qualifyingDates.size))
-            week.endingWeeklyGoal?.let { Subtitle(pluralStringResource(R.plurals.history_usual_quota, it.daysPerWeek, it.daysPerWeek, formatAmount(it.dailyTarget))) }
+            week.endingWeeklyGoal?.let { Subtitle(pluralStringResource(R.plurals.history_usual_quota, it.daysPerWeek, it.daysPerWeek, amountLabel(it.dailyTarget))) }
             week.transitionReasons.forEach { reason -> Subtitle(stringResource(when (reason) {
                 WeekTransitionReason.CALENDAR_BRIDGE -> R.string.history_bridge_reason
                 WeekTransitionReason.CREATED_DURING_PERIOD -> R.string.history_creation_reason
@@ -109,16 +110,16 @@ internal fun CommitRow(habit: Habit, commit: Commit, zone: ZoneId, today: LocalD
     Panel(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
             HabitGlyph(habit, 32)
-            Text(habit.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            Text(displayPreview(habit.name), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             IconButton(onClick = onEdit, modifier = Modifier.then(if (focus == null) Modifier else Modifier.focusRequester(focus))
                 .focusOutline().testTag("edit-commit-${commit.id}")) {
-                Icon(Icons.Outlined.Edit, stringResource(R.string.history_edit_commit, habit.name))
+                Icon(Icons.Outlined.Edit, stringResource(R.string.history_edit_commit, displayPreview(habit.name)))
             }
         }
-        Text(stringResource(R.string.history_recorded_amount, formatAmount(commit.amount), habit.unit), style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.history_recorded_amount, amountLabel(commit.amount), displayPreview(habit.unit)), style = MaterialTheme.typography.bodyLarge)
         if (commit.note.isNotBlank()) Text(commit.note, style = MaterialTheme.typography.bodyMedium)
-        Subtitle(stringResource(R.string.history_commit_time, dateLabel(commit.date),
-            commit.timestamp.atZone(zone).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))))
+        Subtitle(stringResource(R.string.history_commit_time, localizedDateLabel(commit.date),
+            commit.timestamp.atZone(zone).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(displayLocale()))))
         if (commit.date > today) Text(stringResource(R.string.history_future_record))
     }
 }

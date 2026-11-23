@@ -268,6 +268,38 @@ class WorkspaceStoreTest {
         assertArrayEquals(bytes, store.recoveryBytes())
     }
 
+    @Test fun ownedLoadAndReadbackDoNotAliasMutableDiskOrPublicExports() {
+        val access = FakeAccessForViewModel(raw)
+        val store = store(access)
+        val export = requireNotNull(store.recoveryBytes())
+        export.fill(0)
+        assertArrayEquals(raw, store.recoveryBytes())
+        access.stored!!.fill(0)
+        assertArrayEquals(raw, store.recoveryBytes())
+        assertEquals(WriteOutcome.Indeterminate, store.write(Workspace()))
+        assertEquals(0, access.writes)
+        assertTrue(access.preserved.any { it.contentEquals(raw) })
+
+        val cleanAccess = FakeAccessForViewModel()
+        val cleanStore = store(cleanAccess)
+        assertEquals(WriteOutcome.Committed, cleanStore.write(state))
+        cleanAccess.stored!!.fill(0)
+        assertArrayEquals(raw, cleanStore.recoveryBytes())
+    }
+
+    @Test fun deduplicatedPreviousStillSurvivesRollbackAndFrozenExport() {
+        val access = FakeAccessForViewModel(raw)
+        val store = store(access)
+        val snapshot = requireNotNull(store.recoverySnapshot())
+        access.writeActions += { access.stored = broken }
+        assertEquals(WriteOutcome.RolledBack, store.write(Workspace()))
+        assertArrayEquals(raw, access.stored)
+        assertEquals(WriteOutcome.Committed, store.write(Workspace(bio = "later")))
+        val output = java.io.ByteArrayOutputStream()
+        snapshot.writeTo(output)
+        assertArrayEquals(raw, output.toByteArray())
+    }
+
     @Test fun recoveryExportSourceIsFrozenBeforeDestinationOpenEvenIfResetCommits() {
         val access = FakeAccessForViewModel(broken)
         val store = store(access)
@@ -277,6 +309,26 @@ class WorkspaceStoreTest {
         val output = java.io.ByteArrayOutputStream()
         snapshot.writeTo(output)
         assertArrayEquals(broken, output.toByteArray())
+    }
+
+    @Test fun hostileRecoveryDestinationCannotMutateFrozenSnapshotOrOwnedRecoveryBytes() {
+        val access = FakeAccessForViewModel(raw)
+        val store = store(access)
+        val snapshot = requireNotNull(store.recoverySnapshot())
+        val received = java.io.ByteArrayOutputStream()
+        snapshot.writeTo(object : java.io.OutputStream() {
+            override fun write(byte: Int) { fail("Expected bounded bulk write") }
+            override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                received.write(bytes, offset, length)
+                bytes.fill(0)
+            }
+        })
+        assertArrayEquals(raw, received.toByteArray())
+        assertArrayEquals(raw, store.recoveryBytes())
+        assertEquals(WriteOutcome.Committed, store.write(Workspace(bio = "later")))
+        val repeated = java.io.ByteArrayOutputStream()
+        snapshot.writeTo(repeated)
+        assertArrayEquals(raw, repeated.toByteArray())
     }
 
     @Test fun malformedUtf8InsideOtherwiseValidJsonNeverBecomesWritable() {

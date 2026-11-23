@@ -3,6 +3,7 @@ package com.githabit.prototype.data
 import com.githabit.prototype.domain.*
 import java.math.BigDecimal
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -16,15 +17,26 @@ object WorkspaceJson {
 
     fun decode(bytes: ByteArray): Workspace = decodeDocument(bytes).workspace
     fun decode(json: String): Workspace = decodeDocument(json).workspace
-    fun decodeDocument(bytes: ByteArray): DecodedWorkspace = decodeDocument(WorkspaceLimits.decodeUtf8(bytes))
+    fun decodeDocument(bytes: ByteArray): DecodedWorkspace = decodeText(Utf8JsonText(bytes))
+
+    /** Compare every decoded value, discarding verified records instead of a second graph. */
+    internal fun verifies(bytes: ByteArray, expected: Workspace): Boolean = try {
+        Decoder(Utf8JsonText(bytes), VERSION, expected).read() == expected
+    } catch (_: Exception) { false }
 
     /** Validate and bound the entire snapshot before opening a truncating provider destination. */
     fun export(state: Workspace, openOutput: () -> OutputStream) {
-        val encoded = encode(state)
-        openOutput().bufferedWriter(Charsets.UTF_8).use { it.write(encoded) }
+        val size = encodedSize(state)
+        openOutput().use { output ->
+            check(emit(state, BoundedJsonWriter(output = output)) == size.toLong())
+        }
     }
 
     fun decodeDocument(json: String): DecodedWorkspace {
+        return decodeText(json)
+    }
+
+    private fun decodeText(json: CharSequence): DecodedWorkspace {
         // Preflight grammar/depth before constructing domain records. A second streaming
         // pass allows arbitrary root field order without retaining a generic JSON tree.
         val probe = StrictJson(json)
@@ -53,8 +65,51 @@ object WorkspaceJson {
     }
 
     fun encode(state: Workspace): String {
+        return encodeToBytes(state).toString(Charsets.UTF_8)
+    }
+
+    /** Validates the complete escaped output before any large allocation or destination opening. */
+    internal fun encodedSize(state: Workspace): Int {
         WorkspaceValidation.validate(state)
-        return BoundedJsonWriter().apply {
+        return emit(state, BoundedJsonWriter(output = null)).toInt()
+    }
+
+    internal fun encodeToBytes(state: Workspace): ByteArray = encodeBytes(state, null)
+
+    internal fun encodeAndDigest(state: Workspace): Pair<ByteArray, String> {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = encodeBytes(state, digest)
+        return bytes to digest.digest().hexDigest()
+    }
+
+    /** Fingerprint-only work never retains a serialized document. */
+    internal fun fingerprint(state: Workspace): String {
+        encodedSize(state)
+        val digest = MessageDigest.getInstance("SHA-256")
+        emit(state, BoundedJsonWriter(output = object : OutputStream() {
+            override fun write(value: Int) { digest.update(value.toByte()) }
+            override fun write(bytes: ByteArray, offset: Int, length: Int) { digest.update(bytes, offset, length) }
+        }))
+        return digest.digest().hexDigest()
+    }
+
+    private fun encodeBytes(state: Workspace, digest: MessageDigest?): ByteArray {
+        val bytes = ByteArray(encodedSize(state))
+        var position = 0
+        val output = object : OutputStream() {
+            override fun write(value: Int) { bytes[position++] = value.toByte(); digest?.update(value.toByte()) }
+            override fun write(source: ByteArray, offset: Int, length: Int) {
+                source.copyInto(bytes, position, offset, offset + length)
+                position += length
+                digest?.update(source, offset, length)
+            }
+        }
+        check(emit(state, BoundedJsonWriter(output = output)) == bytes.size.toLong() && position == bytes.size)
+        return bytes
+    }
+
+    private fun emit(state: Workspace, writer: BoundedJsonWriter): Long {
+        writer.apply {
             obj {
                 field("version", VERSION)
                 field("onboarded", state.onboarded)
@@ -93,14 +148,15 @@ object WorkspaceJson {
                     if (pending == null) nullField("pending") else objectField("pending") { transition(pending) }
                 }
             }
-        }.toString()
+        }
+        return writer.finish()
     }
 
     private fun BoundedJsonWriter.transition(change: WeekTransition) {
         field("boundary", change.boundary.toString()); field("weekStart", change.weekStart.name)
     }
 
-    private class Decoder(json: String, private val source: Int) {
+    private class Decoder(json: CharSequence, private val source: Int, private val expected: Workspace? = null) {
         private val reader = StrictJson(json)
         private var configurations = 0
 
@@ -120,10 +176,10 @@ object WorkspaceJson {
                 "onboarded" -> onboarded = reader.readBoolean()
                 "darkTheme" -> theme = if (reader.readBoolean()) ThemePreference.DARK else ThemePreference.LIGHT
                 "theme" -> theme = enumValue<ThemePreference>()
-                "name" -> name = reader.readString()
-                "bio" -> bio = reader.readString()
-                "habits" -> habits = array(WorkspaceLimits.MAX_HABITS) { habit() }
-                "commits" -> commits = array(WorkspaceLimits.MAX_COMMITS) { commit() }
+                "name" -> name = text(expected?.name)
+                "bio" -> bio = text(expected?.bio)
+                "habits" -> habits = comparedArray(WorkspaceLimits.MAX_HABITS, expected?.habits) { habit(it) }
+                "commits" -> commits = comparedArray(WorkspaceLimits.MAX_COMMITS, expected?.commits) { commit() }
                 "calendar" -> calendar = calendar()
             } }
             reader.finish()
@@ -140,16 +196,16 @@ object WorkspaceJson {
             return state
         }
 
-        private fun habit(): Habit {
+        private fun habit(expected: Habit?): Habit {
             var id: String? = null; var name: String? = null; var description: String? = null; var unit: String? = null
             var icon: HabitIcon? = null; var color: HabitColor? = null; var createdOn: LocalDate? = null
             var versions: List<GoalVersion>? = null
             objectFields(setOf("id", "name", "description", "unit", "icon", "color", "createdOn", "versions")) { key -> when (key) {
-                "id" -> id = reader.readString(); "name" -> name = reader.readString()
-                "description" -> description = reader.readString(); "unit" -> unit = reader.readString()
+                "id" -> id = text(expected?.id); "name" -> name = text(expected?.name)
+                "description" -> description = text(expected?.description); "unit" -> unit = text(expected?.unit)
                 "icon" -> icon = enumValue<HabitIcon>(); "color" -> color = enumValue<HabitColor>()
                 "createdOn" -> createdOn = date()
-                "versions" -> versions = array(WorkspaceLimits.MAX_CONFIGURATIONS) { configuration(); version() }
+                "versions" -> versions = comparedArray(WorkspaceLimits.MAX_CONFIGURATIONS, expected?.versions) { configuration(); version() }
             } }
             val history = required(versions, "versions")
             return Habit(required(id, "id"), required(name, "name"), required(description, "description"), required(unit, "unit"),
@@ -213,7 +269,7 @@ object WorkspaceJson {
             var initial: DayOfWeek? = null; var transitions: List<WeekTransition>? = null; var pending: WeekTransition? = null
             objectFields(setOf("initialWeekStart", "transitions", "pending")) { key -> when (key) {
                 "initialWeekStart" -> initial = enumValue<DayOfWeek>()
-                "transitions" -> transitions = array(WorkspaceLimits.MAX_CONFIGURATIONS) { configuration(); transition() }
+                "transitions" -> transitions = comparedArray(WorkspaceLimits.MAX_CONFIGURATIONS, expected?.calendar?.transitions) { configuration(); transition() }
                 "pending" -> if (!reader.consumeNull()) { configuration(); pending = transition() }
             } }
             // Do not advance an elapsed pending request using today's device date.
@@ -243,6 +299,18 @@ object WorkspaceJson {
         private fun <T> array(limit: Int, item: () -> T): List<T> = mutableListOf<T>().apply {
             reader.readArray(limit) { add(item()) }
         }
+        private fun <T> comparedArray(limit: Int, expected: List<T>?, item: (T?) -> T): List<T> {
+            if (expected == null) return array(limit) { item(null) }
+            var index = 0
+            reader.readArray(limit) {
+                checkValue(index < expected.size, "Decoded workspace has extra records.")
+                checkValue(item(expected[index]) == expected[index], "Decoded workspace record differs from the expected value.")
+                index++
+            }
+            checkValue(index == expected.size, "Decoded workspace records are missing.")
+            return expected
+        }
+        private fun text(expected: String?): String = if (expected == null) reader.readString() else reader.readStringMatching(expected)
         private fun configuration() = WorkspaceLimits.capacity(++configurations <= WorkspaceLimits.MAX_CONFIGURATIONS,
             "Workspace has too many dated configurations.")
         private fun date(): LocalDate = LocalDate.parse(reader.readString())

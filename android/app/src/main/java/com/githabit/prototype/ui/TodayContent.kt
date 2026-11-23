@@ -42,7 +42,7 @@ internal fun TodayContent(vm: GitHabitViewModel) {
             item(key = "today-header", contentType = "header") {
                 Column(verticalArrangement = Arrangement.spacedBy(GitHabitSpace.micro)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.today_date, dateLabel(today)), Modifier.weight(1f).semantics { heading() },
+                        Text(stringResource(R.string.today_date, localizedDateLabel(today)), Modifier.weight(1f).semantics { heading() },
                             style = MaterialTheme.typography.titleLarge)
                         if (habits.isNotEmpty()) IconButton(onClick = { vm.overlay = Overlay.RepoForm() }, enabled = !vm.busy,
                             modifier = Modifier.focusOutline(CircleShape).testTag("new-repo")) {
@@ -169,10 +169,10 @@ private fun TodayHabitCard(habit: Habit, summary: TodayHabit, busy: Boolean,
         .testTag("habit-${habit.id}").semantics { stateDescription = dailyStatus },
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(GitHabitSpace.medium), verticalArrangement = Arrangement.spacedBy(GitHabitSpace.small)) {
-            Text(habit.name, style = MaterialTheme.typography.titleMedium)
+            Text(displayPreview(habit.name), style = MaterialTheme.typography.titleMedium)
             if (summary.weekly == null) ScheduleSummary(state, habit, summary.daily.date, analytics)
             else if (showPeriod) WeekPeriodSummary(summary.weekly.period)
-            Text(stringResource(R.string.today_numeric_progress, formatAmount(progress.total), formatAmount(requireNotNull(progress.target)), habit.unit),
+            Text(stringResource(R.string.today_numeric_progress, amountLabel(progress.total), amountLabel(requireNotNull(progress.target)), displayPreview(habit.unit)),
                 Modifier.testTag("progress-${habit.id}"), style = MaterialTheme.typography.bodyMedium)
             Subtitle(dailyStatus)
             TodayWeeklyContext(summary)
