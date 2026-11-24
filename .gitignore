@@ -14,3 +14,7 @@ android/*.iml
 android/captures/
 android/app/release/
 .kotlin/
+
+# Local plans and reports (never publish or commit)
+.plans/
+.reports/
