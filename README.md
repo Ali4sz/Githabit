@@ -1,91 +1,119 @@
-# GitHabit
+<p align="center">
+  <img src="githabit-icon-dark.svg" alt="GitHabit icon" width="96" />
+</p>
 
-A working HTML, CSS, and JavaScript mock-up of a GitHub-inspired Android habit tracker, with Material 3–inspired navigation, themed surfaces, dialogs, and interaction states.
+<h1 align="center">GitHabit</h1>
 
-## Open the prototype
+<p align="center"><strong>A little better, every day.</strong></p>
 
-No npm install or build step is needed.
+<p align="center">
+  A local-first habit tracker for Android that treats your habits like repos
+  and your progress like commits — with a GitHub-style contribution graph
+  that shows every day you showed up.
+</p>
 
-```sh
-npm start
-```
+<p align="center">
+  <img src="https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin 2.2.20" />
+  <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=android&logoColor=white" alt="Jetpack Compose, Material 3" />
+  <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0 and newer" />
+  <img src="https://img.shields.io/badge/Privacy-Local%20only-2ea344" alt="Local only, no account" />
+  <img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="Apache 2.0 license" />
+</p>
 
-Open **http://127.0.0.1:4173**. This uses Python 3’s static server. Alternatively:
+---
 
-```sh
-python3 -m http.server 4173 --bind 127.0.0.1
-```
+## What is GitHabit?
 
-You can also open `index.html` directly in a modern browser. Local storage on `file://` URLs is browser-dependent, so the local server is recommended. All files must remain together.
+GitHabit turns habit tracking into something developers already understand:
 
-Choose **Explore with sample habits** to preview the populated app, or use **made-up** sign-in details to try the onboarding and create a clean workspace.
+- **A habit is a repo.** Give it a name, a daily target and a unit — *read 20 pages*, *move 30 minutes*, *drink 2 litres*.
+- **Progress is a commit.** Log an amount toward today's target, add an optional note, and watch the graph fill in.
+- **Your year is a contribution graph.** Every square is a day you showed up. Streaks count days with any logged progress, not perfection.
 
-### Screenshots
+No account. No backend. No cloud sync. Your data stays on your phone, in a local workspace you can export, restore, or reset whenever you want.
 
-- [Desktop dashboard](previews/desktop-today.png)
-- [Mobile dashboard](previews/mobile-today.png)
-- [Mobile commit sheet](previews/mobile-commit.png)
-- [Light-theme insights](previews/light-insights.png)
+## Preview
 
-## Connected screens
+Screenshots use sample data, to show the design.
 
-- Demo Google/email sign-in and three-step onboarding.
-- **Today:** overall contribution heatmap, active habits, daily goals, activity streak, and recent commits.
-- **Repos:** search, active/paused/archived filters, creation, and editing.
-- **Repo detail:** individual heatmap, daily progress, activity history, pause, archive, and resume.
-- **Insights:** real calculations from the stored logs, weekly progress, and habit consistency.
-- **Activity:** chronological commits, corrections, deletion, and export.
-- **Settings:** profile, light/dark themes, help, sign-out, JSON export, and confirmed data reset.
-
-Phone layouts use bottom navigation and bottom-sheet dialogs. Desktop layouts use a sidebar and a wider dashboard.
-
-## Tracking rules
-
-- Habits repeat daily and have a positive numeric target and unit. Up to three decimal places are supported.
-- A commit adds progress; **Complete goal** adds only the remaining amount. Additional progress can exceed the goal, but completion scoring is capped at 100%.
-- An individual heatmap shows progress toward that day’s target. The overall heatmap averages the capped percentages of that day’s active habits; pages and minutes are never added together.
-- Days before habit creation or with no active habits are not applicable, rather than failed days.
-- An **activity streak** counts consecutive days with any logged progress. An unfinished today does not break yesterday’s streak.
-- Goal/status changes apply from today onward. Earlier calendar days retain their targets and active/paused/archived status.
-- Units cannot be changed after the first commit. Create a separate repo to track a different unit.
-- New commits are for today; existing historical commits can be corrected or removed. Dates use the browser’s local calendar.
-- Small graph cells have readable labels. Use **Explore by date** for larger controls and numeric summaries, or use the arrow keys on the graph. Home/End go to the first/latest visible date.
-
-## Prototype boundaries
-
-This is **not a native Android app or production authentication system**. It has no backend, cloud sync, account isolation, reminders, push notifications, or GitHub integration. No sign-in credentials are saved or transmitted. All “accounts” share the same local prototype workspace.
-
-Habit data and preferences are saved in this browser’s local storage under `githabit.prototype.v1`. Signing out keeps that data; reset removes the app’s local workspace. Clearing browser data can erase it. Export JSON for a copy; importing that file is not implemented.
-
-The interface is Material 3–inspired, not an official Material component library or a certified accessibility implementation. No GitHub logos are used. Optional Google Fonts requests provide DM Sans/Manrope; system fonts are the offline fallback. The app does not otherwise require external services.
-
-## Files
-
-| File | Purpose |
+| Today | Log a commit |
 | --- | --- |
-| `index.html` | Entry point and dialog/live-announcement containers |
-| `styles.css` | Theme tokens, responsive layouts, and component styles |
-| `domain.js` | Pure date, habit, log, history, and analytics logic |
-| `app.js` | Screens, routing, local persistence, and UI interactions |
-| `tests/domain.test.cjs` | Dependency-free Node unit tests |
-| `tests/browser.js` | End-to-end Playwright CLI journey |
+| <img src="previews/mobile-today.png" alt="Today screen with contribution graph, streak and today's repos" width="280" /> | <img src="previews/mobile-commit.png" alt="Commit sheet for logging progress toward a habit" width="280" /> |
 
-## Verify
+| Insights (light theme) | Today (desktop preview) |
+| --- | --- |
+| <img src="previews/light-insights.png" alt="Insights screen with weekly progress and habit consistency" width="560" /> | <img src="previews/desktop-today.png" alt="Desktop preview of the Today screen" width="560" /> |
 
-With Node 18 or newer:
+## Features
 
-```sh
-npm test
-npm run check
+- **Today** — log progress in one tap, see what's due, what's left, and your current streak at a glance. *Complete goal* adds only the remaining amount, never another full target.
+- **Repos** — search and filter your habits, create and edit them, and pause, archive, or resume any time.
+- **Repo detail** — a per-habit heatmap, daily progress, and full history, with editing and deletion of past commits.
+- **Schedules that fit real life** — daily, selected weekdays, or *N* target days per calendar week.
+- **Insights** — weekly progress, day and week adherence, and per-habit consistency, calculated from your actual logs.
+- **Activity** — a chronological log of every commit, with corrections and Undo.
+- **Explore by date** — tap any day on the graph for exact amounts, eligibility, and weekly context.
+- **Settings** — optional profile, System / Light / Dark theme, week-start day, JSON export, validated restore, and confirmed reset (with an export-first option).
+- **Adaptive layout** — bottom navigation on phones, navigation rail and list/detail on larger screens, with saved drafts, scroll positions, and system Back support.
+
+## How tracking works
+
+- A commit adds progress toward that day's target. Amounts can be fractional (up to three decimal places) and can exceed the goal — the daily ratio is capped at 100%.
+- **Complete goal** adds only what's still missing.
+- Weekly schedules count *distinct days* that reached the daily target, not the number of commits or total quantity.
+- Changes to a target, schedule, or status apply from today onward. Earlier days keep the expectations they had.
+- Units are locked after the first commit — create a separate repo to track a different unit.
+- New commits are for today; older commits can be corrected or deleted.
+- An activity streak counts consecutive days with any logged progress. An unfinished today doesn't break yesterday's streak.
+
+## Privacy
+
+- **Local only.** No sign-in, no server, no analytics, no GitHub integration, no reminders or notifications.
+- Data lives in app-private storage as versioned JSON. Export and restore use Android's document picker, and exports are plain JSON files — keep them somewhere safe.
+- Clearing app data or uninstalling erases the on-device workspace, so export a copy first if it matters to you.
+
+## Get the app
+
+GitHabit is a native Android app, built with **Kotlin, Jetpack Compose, and Material 3**. The full build guide, toolchain versions, and test instructions live in [`android/README.md`](android/README.md).
+
+**Quick build** (Android 8.0 / API 26 or newer):
+
+```bash
+cd android
+export ANDROID_HOME="$HOME/Android/Sdk"
+./gradlew :app:assembleDebug
 ```
 
-For the browser journey, start the local server, then use an installed Playwright CLI and browser:
+The APK lands at `app/build/outputs/apk/debug/app-debug.apk`. Or open the `android/` folder in Android Studio and press Run.
 
-```sh
-playwright-cli -s=githabit-test open http://127.0.0.1:4173
-playwright-cli -s=githabit-test run-code --filename=tests/browser.js
-playwright-cli -s=githabit-test run-code --filename=tests/layouts.js
-playwright-cli -s=githabit-test close
+| Component | Version |
+| --- | --- |
+| Kotlin / Compose compiler | 2.2.20 |
+| Compose BOM | 2025.09.01 |
+| Android Gradle Plugin | 8.13.0 |
+| Compile / target SDK | 36 |
+| Minimum SDK | 26 (Android 8.0) |
+
+## Project structure
+
+| Path | What's there |
+| --- | --- |
+| `android/` | The native Android app (Kotlin + Compose) — see [`android/README.md`](android/README.md) |
+| `index.html`, `app.js`, `domain.js`, `styles.css` | A clickable web prototype of the same design, for previewing in a browser |
+| `previews/` | Screenshots used in this README |
+| `tests/` | Tests for the web prototype |
+
+**Try the web prototype** (no build step, design preview only):
+
+```bash
+npm start
+# open http://127.0.0.1:4173
 ```
 
-**Use an isolated test session:** the browser journey resets the local GitHabit workspace in that session. It covers sign-in, onboarding, creation, partial and full progress, undo, history correction/deletion, lifecycle changes, date exploration, search, insights, theme/profile persistence, export, reset, and layouts from 320px to 1440px. Run `layouts.js` afterward to check every primary screen and both edit/log forms at five viewport widths.
+## Status
+
+GitHabit is under active development. The core app is implemented — Today, Repos, Insights, Activity, schedules, export/restore, and themes — and recent regression runs pass, but this is not yet a finished Play Store release: final accessibility, performance, and older-device verification is still open. See [`android/README.md`](android/README.md) for the current checkpoint and what remains.
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).
